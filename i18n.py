@@ -417,11 +417,11 @@ TRANSLATIONS = {
         "Ordner":
             "Folder",
         "Uhr": "Clock",
-        "Uhrzeit auf dem Gerät": "Time on the device",
         "24-Stunden-Anzeige": "24-hour display",
-        "Aus zeigt die Uhr auf dem Clawdmeter als 12-Stunden-Zeit mit AM/PM. Gilt nur für das Gerät, nicht für diese App.":
-            "Off shows the clock on the Clawdmeter as 12-hour time with AM/PM. "
-            "Applies to the device only, not to this app.",
+        "Die Uhrzeit, die das Clawdmeter auf dem Usage-Screen anzeigt.":
+            "The time the Clawdmeter shows on the Usage screen.",
+        "Aus zeigt die Uhr als 12-Stunden-Zeit mit AM/PM.":
+            "Off shows the clock as 12-hour time with AM/PM.",
         "Gar nicht": "Not at all",
         "(nur auf dem Usage-Screen)": "Only display Usage screen",
         "nur auf dem Gerät": "device only",

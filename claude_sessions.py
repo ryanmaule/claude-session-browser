@@ -5964,6 +5964,9 @@ async function renderBuddy(){
   const anims = data.anims || [];
   const previewName = data.preview_name || 'idle breathe';
   const previewSrc = data.preview || '';
+  // Die Uhr-Einstellung liegt nicht im Buddy-Block, sondern bei den
+  // App-Einstellungen -- also von dort lesen, wie renderSettings() es tut.
+  const clock24 = ((STATE && STATE.settings) || {}).clock_24h !== false;
   // Kopf-Vorschau (Miniatur im Titel)
   // Ueberschrift bekommt die freigestellte Fassung, nicht den vollen
   // 20x20-Rahmen - sonst sitzt ein kleiner Klecks in einem schwarzen Quadrat.
@@ -6101,6 +6104,16 @@ async function renderBuddy(){
           <div class="toggle ${b.party?'on':''}" onclick="buddySetToggle('party')"></div>
         </div>
       </div>
+    </div>
+
+    <div class="card">
+      <h2>${ic('clock')}Uhr</h2>
+      <div class="sub">Die Uhrzeit, die das Clawdmeter auf dem Usage-Screen anzeigt.</div>
+      <div class="ba-party">
+        <span>24-Stunden-Anzeige</span>
+        <div class="toggle ${clock24?'on':''}" onclick="toggleClock24(this)"></div>
+      </div>
+      <div class="ba-hint">Aus zeigt die Uhr als 12-Stunden-Zeit mit AM/PM.</div>
     </div>
     </div>
   `;
@@ -6286,16 +6299,6 @@ function renderSettings(){
       <h2>${ic('contrast')}Hintergrund</h2>
       <div class="sub">Grundton der Oberfläche – Flächen, Zeilen und Ränder werden daraus abgeleitet.</div>
       <div class="swatches">${bgl}</div>
-    </div>
-
-    <div class="secthead" id="sect-uhr">${t('Uhr')}</div>
-    <div class="card">
-      <h2>${ic('clock')}Uhrzeit auf dem Gerät</h2>
-      <div class="row2">
-        <div><div class="lbl">24-Stunden-Anzeige</div>
-          <div class="desc">Aus zeigt die Uhr auf dem Clawdmeter als 12-Stunden-Zeit mit AM/PM. Gilt nur für das Gerät, nicht für diese App.</div></div>
-        <div class="toggle ${st.clock_24h!==false?'on':''}" onclick="toggleClock24(this)"></div>
-      </div>
     </div>
 
     <div class="secthead" id="sect-verhalten">Verhalten</div>
@@ -6645,6 +6648,7 @@ setInterval(()=>{ if(document.getElementById('clawd-status')) refreshClawd(); },
 async function toggleClock24(el){
   const on=!el.classList.contains('on'); el.classList.toggle('on',on);
   ingest(await api.update_setting('clock_24h', on));
+  renderBuddy();   // der Schalter sitzt im Buddy-Tab
 }
 async function toggleTray(el){
   const on=!el.classList.contains('on'); el.classList.toggle('on',on);

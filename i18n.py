@@ -416,6 +416,12 @@ TRANSLATIONS = {
             "Only when this window is in front:",
         "Ordner":
             "Folder",
+        "Uhr": "Clock",
+        "Uhrzeit auf dem Gerät": "Time on the device",
+        "24-Stunden-Anzeige": "24-hour display",
+        "Aus zeigt die Uhr auf dem Clawdmeter als 12-Stunden-Zeit mit AM/PM. Gilt nur für das Gerät, nicht für diese App.":
+            "Off shows the clock on the Clawdmeter as 12-hour time with AM/PM. "
+            "Applies to the device only, not to this app.",
         "Gar nicht": "Not at all",
         "(nur auf dem Clawdmeter)": "(only on the Clawdmeter)",
         "nur auf dem Gerät": "device only",

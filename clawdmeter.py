@@ -493,7 +493,8 @@ class ClawdmeterLink:
     pywebview-GUI davon nichts mitbekommt."""
 
     def __init__(self, log=None, address_provider=None, on_usage=None,
-                 anim_provider=None, on_battery=None, corner_provider=None):
+                 anim_provider=None, on_battery=None, corner_provider=None,
+                 clock_provider=None):
         """address_provider: Funktion die die gewuenschte Geraeteadresse liefert
         (leer/None = automatisch suchen). Wird bei jedem Versuch neu gefragt,
         damit eine Aenderung in den Einstellungen sofort greift.
@@ -513,6 +514,9 @@ class ClawdmeterLink:
         # gefragt, damit ein Umschalten sofort ankommt.
         self._corner_provider = corner_provider or (lambda: False)
         self._last_corner = None
+        # 24 oder 12 - wie die Animation bei jedem Senden neu gefragt, damit
+        # ein Umschalten beim naechsten Poll auf dem Geraet steht.
+        self._clock_provider = clock_provider or (lambda: 24)
         # Wird nur bei einer Aenderung gerufen, nicht bei jedem Nachlesen -
         # sonst haengt an jedem Poll eine Auswertung.
         self._on_battery = on_battery
@@ -786,6 +790,10 @@ class ClawdmeterLink:
         payload["a"] = anim          # "" = Geraet entscheidet selbst
         corner = self._current_corner()
         payload["ua"] = corner       # Buddy klein auf dem Usage-Screen
+        try:
+            payload["tf"] = 24 if int(self._clock_provider()) != 12 else 12
+        except Exception:
+            payload["tf"] = 24
         self._last_anim = anim
         self._last_corner = corner
 

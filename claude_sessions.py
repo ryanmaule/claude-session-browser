@@ -312,6 +312,9 @@ DEFAULT_SETTINGS = {
         "frame_color": "#ec7456",
         "frame_label": "CLAWD",
     },
+    # Uhrzeit auf dem Geraet: True = 24 Stunden, False = 12 Stunden mit AM/PM.
+    # Die Firmware kann beides laengst (clock_fmt), gefragt wurde sie nie.
+    "clock_24h": True,
     "clawdmeter": False,         # Usage-Werte per BLE ans Clawdmeter-Geraet schicken
     "clawdmeter_addr": "",       # gewaehltes Geraet (leer = automatisch suchen)
     # Zeigt das Geraet dieselbe Animation wie der Buddy? Aus = es waehlt selbst
@@ -3772,6 +3775,7 @@ class Api:
             on_usage=self.on_usage_meta,
             anim_provider=self._clawd_anim,
             corner_provider=self._clawd_corner,
+            clock_provider=lambda: 24 if self.settings.get("clock_24h", True) else 12,
             on_battery=self.on_clawd_battery)
         return self._clawdmeter
 
@@ -6284,6 +6288,16 @@ function renderSettings(){
       <div class="swatches">${bgl}</div>
     </div>
 
+    <div class="secthead" id="sect-uhr">Uhr</div>
+    <div class="card">
+      <h2>${ic('clock')}Uhrzeit auf dem Gerät</h2>
+      <div class="row2">
+        <div><div class="lbl">24-Stunden-Anzeige</div>
+          <div class="desc">Aus zeigt die Uhr auf dem Clawdmeter als 12-Stunden-Zeit mit AM/PM. Gilt nur für das Gerät, nicht für diese App.</div></div>
+        <div class="toggle ${st.clock_24h!==false?'on':''}" onclick="toggleClock24(this)"></div>
+      </div>
+    </div>
+
     <div class="secthead" id="sect-verhalten">Verhalten</div>
     <div class="card">
       <h2>${ic('window')}Fenster schließen</h2>
@@ -6628,6 +6642,10 @@ async function toggleClawdBuddy(el){
 }
 setInterval(()=>{ if(document.getElementById('clawd-status')) refreshClawd(); }, 5000);
 
+async function toggleClock24(el){
+  const on=!el.classList.contains('on'); el.classList.toggle('on',on);
+  ingest(await api.update_setting('clock_24h', on));
+}
 async function toggleTray(el){
   const on=!el.classList.contains('on'); el.classList.toggle('on',on);
   ingest(await api.update_setting('close_to_tray', on));

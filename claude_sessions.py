@@ -297,7 +297,7 @@ DEFAULT_SETTINGS = {
     "buddy": {                   # Clawd-Buddy: kleines animiertes Desktop-Maskottchen
         "enabled": False,
         "size": 4,               # Skalierung: 20 px * size -> tatsaechliche Kantenlaenge
-        "visibility": "when_claude",  # "when_claude" | "always" | "when_window"
+        "visibility": "when_claude",  # "when_claude" | "always" | "when_window" | "never"
         "target_window": "",     # Titel-Substring (Kleinschreibung) fuer visibility=when_window
         "x": 200, "y": 200,      # gemerkte Position auf dem Desktop
         "opacity": 100,          # 20..100 (Prozent) – 100 = voll deckend
@@ -2465,6 +2465,16 @@ class BuddyController:
             bud = self.api.settings.get("buddy", {})
             if not bud.get("enabled"):
                 return False
+            # "Gar nicht": der Buddy laeuft weiter und waehlt weiter seine
+            # Animation -- er zeigt sich nur nicht auf dem Desktop. Genau das
+            # braucht, wer ihn ausschliesslich auf dem Geraet sehen will:
+            # abgeschaltet gaebe es nichts zu spiegeln, und das Geraet wuerde
+            # wieder selbst nach Auslastung aussuchen.
+            #
+            # Steht bewusst vor der Buddy-Tab-Ausnahme unten: "gar nicht" soll
+            # auch dort gelten, sonst tauchte er beim Einstellen doch auf.
+            if bud.get("visibility") == "never":
+                return False
             # Buddy-Tab: immer sichtbar (auch waehrend Foreground-Racing) -
             # ABER nur wenn das Hauptfenster auch tatsaechlich sichtbar ist.
             # Wenn die App in den Tray minimiert wurde bleibt _current_view
@@ -3679,13 +3689,18 @@ class Api:
         reason = ""
         if bud.get("enabled") and self.buddy.is_alive():
             mode = bud.get("visibility", "when_claude")
-            if mode == "when_claude" and not _claude_context_active():
-                reason = "wartet auf Claude"
+            # Der Grund wird als {grund} in einen schon uebersetzten Satz
+            # eingesetzt, also hier uebersetzen -- sonst bliebe die Haelfte des
+            # Satzes deutsch.
+            if mode == "never":
+                reason = t("nur auf dem Gerät")
+            elif mode == "when_claude" and not _claude_context_active():
+                reason = t("wartet auf Claude")
             elif mode == "when_window":
                 needle = (bud.get("target_window") or "").lower().strip()
                 fg = _win_foreground_title().lower()
                 if needle and needle not in fg:
-                    reason = "wartet auf Fenster"
+                    reason = t("wartet auf Fenster")
         return {
             "config": bud,
             "anims": anims,
@@ -6000,6 +6015,7 @@ async function renderBuddy(){
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_claude'?'checked':''} onchange="buddySet('visibility','when_claude')"> <span>Nur wenn Claude Code läuft <em class="ba-dim">(erkennt Terminal + <code>claude.exe</code>)</em></span></label>
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='always'?'checked':''} onchange="buddySet('visibility','always')"> <span>Immer sichtbar</span></label>
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_window'?'checked':''} onchange="buddySet('visibility','when_window')"> <span>Nur wenn dieses Fenster vorne ist:</span></label>
+        <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='never'?'checked':''} onchange="buddySet('visibility','never')"> <span>Gar nicht <em class="ba-dim">(nur auf dem Clawdmeter)</em></span></label>
       </div>
       <div class="ba-window ${vis==='when_window'?'':'disabled'}">
         <input type="text" id="ba-target" placeholder="z.B. „claude" oder Titel-Ausschnitt" value="${esc(target)}"

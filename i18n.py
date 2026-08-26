@@ -416,6 +416,12 @@ TRANSLATIONS = {
             "Only when this window is in front:",
         "Ordner":
             "Folder",
+        "Gar nicht": "Not at all",
+        "(nur auf dem Clawdmeter)": "(only on the Clawdmeter)",
+        "nur auf dem Gerät": "device only",
+        "wartet auf Claude": "waiting for Claude",
+        "wartet auf Fenster": "waiting for window",
+
         "Animation im Usage-Screen zeigen":
             "Show animation on Usage screen",
         "Das Gerät zeigt den Buddy dann auch klein auf dem Usage-Screen neben den Prozentwerten, statt nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.":

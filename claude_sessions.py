@@ -1187,29 +1187,34 @@ def _mac_terminal_windows():
 
     _mac_list_windows_hwnd() fragt nur den Prozess im Vordergrund - ein
     Claude-Terminal im Hintergrund faellt dort durch. Hier werden gezielt die
-    bekannten Terminals abgefragt, unabhaengig vom Fokus."""
-    apps = ", ".join(f'"{a}"' for a in _MAC_TERMINAL_APPS)
-    script = f'''tell application "System Events"
-    set out to ""
-    repeat with pn in {{{apps}}}
-        if exists (process pn) then
-            repeat with w in (windows of process pn)
-                set out to out & pn & tab & (name of w) & linefeed
-            end repeat
-        end if
-    end repeat
-    return out
-end tell'''
-    try:
-        raw = subprocess.check_output(["osascript", "-e", script],
-                                      text=True, timeout=5)
-    except Exception:
+    bekannten Terminals abgefragt, unabhaengig vom Fokus.
+
+    Erst die Liste der sichtbaren Programme holen, dann nur die tatsaechlich
+    laufenden nach Fenstern fragen. `exists (process "X")` einzeln fuer ein
+    nicht laufendes Programm zu pruefen dauert jeweils spuerbar lange - ueber
+    die ganze Liste lief das in den Timeout und lieferte gar nichts."""
+    def osa(script, timeout=8):
+        try:
+            return subprocess.check_output(["osascript", "-e", script],
+                                           text=True, timeout=timeout).strip()
+        except Exception:
+            return ""
+
+    running = osa('tell application "System Events" to get name of every '
+                  'process whose background only is false')
+    if not running:
         return []
+    have = {n.strip() for n in running.split(",") if n.strip()}
+    targets = [a for a in _MAC_TERMINAL_APPS if a in have]
+
     res = []
-    for line in raw.splitlines():
-        app, _, title = line.partition("\t")
-        if title.strip():
-            res.append((app.strip(), title.strip()))
+    for app in targets:
+        titles = osa(f'tell application "System Events" to get name of every '
+                     f'window of process "{app}"')
+        for title in titles.split(","):
+            title = title.strip()
+            if title:
+                res.append((app, title))
     return res
 
 

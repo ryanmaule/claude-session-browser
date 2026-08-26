@@ -6018,8 +6018,8 @@ async function renderBuddy(){
       <div class="ba-vis">
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_claude'?'checked':''} onchange="buddySet('visibility','when_claude')"> <span>Nur wenn Claude Code läuft <em class="ba-dim">(erkennt Terminal + <code>claude.exe</code>)</em></span></label>
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='always'?'checked':''} onchange="buddySet('visibility','always')"> <span>Immer sichtbar</span></label>
-        <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_window'?'checked':''} onchange="buddySet('visibility','when_window')"> <span>Nur wenn dieses Fenster vorne ist:</span></label>
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='never'?'checked':''} onchange="buddySet('visibility','never')"> <span>Gar nicht <em class="ba-dim">(nur auf dem Usage-Screen)</em></span></label>
+        <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_window'?'checked':''} onchange="buddySet('visibility','when_window')"> <span>Nur wenn dieses Fenster vorne ist:</span></label>
       </div>
       <div class="ba-window ${vis==='when_window'?'':'disabled'}">
         <input type="text" id="ba-target" placeholder="z.B. „claude" oder Titel-Ausschnitt" value="${esc(target)}"
@@ -6288,7 +6288,7 @@ function renderSettings(){
       <div class="swatches">${bgl}</div>
     </div>
 
-    <div class="secthead" id="sect-uhr">Uhr</div>
+    <div class="secthead" id="sect-uhr">${t('Uhr')}</div>
     <div class="card">
       <h2>${ic('clock')}Uhrzeit auf dem Gerät</h2>
       <div class="row2">

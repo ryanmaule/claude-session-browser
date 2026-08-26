@@ -301,6 +301,10 @@ DEFAULT_SETTINGS = {
         "target_window": "",     # Titel-Substring (Kleinschreibung) fuer visibility=when_window
         "x": 200, "y": 200,      # gemerkte Position auf dem Desktop
         "opacity": 100,          # 20..100 (Prozent) – 100 = voll deckend
+        # Zeigt das Geraet den Buddy zusaetzlich klein auf dem Usage-Screen?
+        # Aus = nur auf dem Splash-Screen, wie die Firmware es von Haus aus
+        # macht. Braucht eine Firmware die das unterstuetzt.
+        "usage_screen_anim": False,
         "party": False,          # Party-Modus: nur Tanz-Animation
         "party_style": "bounce", # Party-Stil: "bounce" (hopsend) oder "sway" (schaukelnd)
         "frame": False,          # (legacy) duenner Rahmen um den Buddy
@@ -5989,6 +5993,11 @@ async function renderBuddy(){
         <button class="btn" onclick="buddyPickWindow()">Aus offenen Fenstern wählen…</button>
       </div>
       <div class="ba-hint">Passt zu jedem Fenster, dessen Titel den eingegebenen Text enthält (Groß-/Kleinschreibung egal).</div>
+      <div class="ba-party">
+        <span>Animation im Usage-Screen zeigen</span>
+        <div class="toggle ${b.usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
+      </div>
+      <div class="ba-hint">Das Gerät zeigt den Buddy dann auch klein auf dem Usage-Screen neben den Prozentwerten, statt nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.</div>
     </div>
 
     <div class="card">

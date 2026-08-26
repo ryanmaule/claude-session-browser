@@ -416,6 +416,12 @@ TRANSLATIONS = {
             "Only when this window is in front:",
         "Ordner":
             "Folder",
+        "Animation im Usage-Screen zeigen":
+            "Show animation on Usage screen",
+        "Das Gerät zeigt den Buddy dann auch klein auf dem Usage-Screen neben den Prozentwerten, statt nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.":
+            "The device then also shows the buddy small on the Usage screen next "
+            "to the percentages, instead of only on the splash screen. Needs "
+            "firmware that supports it.",
         "Party-Modus (nur Tanz)":
             "Party mode (dance only)",
         "Passt zu jedem Fenster, dessen Titel den eingegebenen Text enthält (Groß-/Kleinschreibung egal).":

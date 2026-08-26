@@ -5113,6 +5113,9 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .ba-name{font-size:11px; color:var(--muted); margin-top:6px; text-transform:lowercase; letter-spacing:.02em}
   .ba-actions{display:flex; justify-content:space-between; align-items:center; gap:16px; margin-top:14px}
   .ba-party{display:flex; align-items:center; gap:10px; font-size:13.5px; color:var(--muted)}
+  /* Trennt eine eigenstaendige Einstellung von dem Block darueber -- ohne
+     die Linie laufen Hinweistext und naechster Schalter ineinander. */
+  .ba-split{margin-top:14px; padding-top:14px; border-top:1px solid var(--border)}
   .ba-wlist{overflow:auto; max-height:50vh; border:1px solid var(--border); border-radius:10px;
     background:var(--bg); margin-bottom:12px}
   .ba-wlist-row{padding:9px 12px; cursor:pointer; border-bottom:1px solid var(--border);
@@ -5993,7 +5996,7 @@ async function renderBuddy(){
         <button class="btn" onclick="buddyPickWindow()">Aus offenen Fenstern wählen…</button>
       </div>
       <div class="ba-hint">Passt zu jedem Fenster, dessen Titel den eingegebenen Text enthält (Groß-/Kleinschreibung egal).</div>
-      <div class="ba-party">
+      <div class="ba-party ba-split">
         <span>Animation im Usage-Screen zeigen</span>
         <div class="toggle ${b.usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
       </div>

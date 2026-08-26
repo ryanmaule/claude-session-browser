@@ -1151,6 +1151,68 @@ def _mac_enum_monitors():
         }]
 
 
+# Terminal-Programme, in denen die Claude-CLI ueblicherweise laeuft. Nur diese
+# werden nach Fenstern gefragt - „alle Prozesse" ueber System Events zu gehen
+# dauert je nach Rechner Sekunden, und der Cache haelt nur 2 s.
+_MAC_TERMINAL_APPS = (
+    "Terminal", "iTerm2", "iTerm", "Warp", "Ghostty", "kitty", "Alacritty",
+    "WezTerm", "Hyper", "Tabby", "Code", "Cursor",
+)
+
+
+def _mac_process_names_with_path():
+    """(name, pfad, pid) fuer laufende Prozesse - das macOS-Gegenstueck zu
+    _win_process_names_with_path(). `comm` liefert den vollen Pfad, der Name
+    ist dessen Basis."""
+    try:
+        out = subprocess.check_output(
+            ["ps", "-axo", "pid=,comm="], text=True, timeout=5)
+    except Exception:
+        return []
+    res = []
+    for line in out.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        pid, _, path = line.partition(" ")
+        path = path.strip()
+        if not path:
+            continue
+        res.append((os.path.basename(path), path, pid.strip()))
+    return res
+
+
+def _mac_terminal_windows():
+    """(app, titel) der Fenster aller laufenden Terminal-Programme.
+
+    _mac_list_windows_hwnd() fragt nur den Prozess im Vordergrund - ein
+    Claude-Terminal im Hintergrund faellt dort durch. Hier werden gezielt die
+    bekannten Terminals abgefragt, unabhaengig vom Fokus."""
+    apps = ", ".join(f'"{a}"' for a in _MAC_TERMINAL_APPS)
+    script = f'''tell application "System Events"
+    set out to ""
+    repeat with pn in {{{apps}}}
+        if exists (process pn) then
+            repeat with w in (windows of process pn)
+                set out to out & pn & tab & (name of w) & linefeed
+            end repeat
+        end if
+    end repeat
+    return out
+end tell'''
+    try:
+        raw = subprocess.check_output(["osascript", "-e", script],
+                                      text=True, timeout=5)
+    except Exception:
+        return []
+    res = []
+    for line in raw.splitlines():
+        app, _, title = line.partition("\t")
+        if title.strip():
+            res.append((app.strip(), title.strip()))
+    return res
+
+
 def _mac_list_windows_hwnd():
     """Get list of open windows on macOS using AppleScript."""
     try:
@@ -1398,6 +1460,8 @@ def _win_process_names_with_path():
     """Wie _win_process_names, gibt aber (name, path, pid)-Tupel zurueck. Der
     Pfad kann leer sein wenn OpenProcess/QueryFullProcessImageName
     fehlschlaegt (Rechte-Problem bei System-Prozessen)."""
+    if _IS_MAC:
+        return _mac_process_names_with_path()
     if not _IS_WIN:
         return []
     try:
@@ -1486,11 +1550,15 @@ def _claude_context_active():
         # claude.exe) - das ist ein Chat-Client, kein CLI, und hat nichts mit
         # unserer JSONL-Detection zu tun. Wir filtern nach Prozesspfad falls
         # verfuegbar.
+        cli_name = "claude" if _IS_MAC else "claude.exe"
         for name, path, pid in _win_process_names_with_path():
-            if name != "claude.exe":
+            if name != cli_name:
                 continue
-            if path and "anthropicclaude" in path.lower():
-                # Desktop-App - ignorieren
+            low = (path or "").lower()
+            # Die Desktop-Chat-App heisst genauso. Unter Windows steckt sie in
+            # %LOCALAPPDATA%\AnthropicClaude, auf dem Mac in einem
+            # Claude.app-Bundle - beides ist kein CLI und zaehlt nicht.
+            if low and ("anthropicclaude" in low or "/claude.app/" in low):
                 continue
             keys.add(("pid", pid))
         # 2) Fenster mit 'claude' im Titel (locker), Browser + Eigen-App raus
@@ -1516,7 +1584,14 @@ def _claude_context_active():
             "chat.openai.com", "claude.ai",   # Web-Claude nicht mitzaehlen
             "anthropic.com",
         )
-        for hwnd, title in _win_list_windows_hwnd():
+        # _win_list_windows_hwnd() liefert auf dem Mac nur die Fenster des
+        # Programms im Vordergrund - ein Claude-Terminal im Hintergrund faellt
+        # dort durch. Deshalb dort gezielt die Terminals fragen. Der Schluessel
+        # ist (Programm, Titel): eine Fensternummer waere nur die Position in
+        # der Liste des gerade vordersten Programms und damit wertlos.
+        windows = ([(f"{app}:{title}", title) for app, title in _mac_terminal_windows()]
+                   if _IS_MAC else _win_list_windows_hwnd())
+        for hwnd, title in windows:
             t = title.lower()
             if not t or t.strip() == _OWN_APP_TITLE_EXACT:
                 continue

@@ -493,7 +493,7 @@ class ClawdmeterLink:
     pywebview-GUI davon nichts mitbekommt."""
 
     def __init__(self, log=None, address_provider=None, on_usage=None,
-                 anim_provider=None, on_battery=None):
+                 anim_provider=None, on_battery=None, corner_provider=None):
         """address_provider: Funktion die die gewuenschte Geraeteadresse liefert
         (leer/None = automatisch suchen). Wird bei jedem Versuch neu gefragt,
         damit eine Aenderung in den Einstellungen sofort greift.
@@ -508,6 +508,11 @@ class ClawdmeterLink:
         self._address_provider = address_provider or (lambda: None)
         self._on_usage = on_usage
         self._anim_provider = anim_provider or (lambda: "")
+        # Soll das Geraet den Buddy zusaetzlich klein in der Ecke des
+        # Usage-Screens zeigen? Wird wie die Animation bei jedem Senden neu
+        # gefragt, damit ein Umschalten sofort ankommt.
+        self._corner_provider = corner_provider or (lambda: False)
+        self._last_corner = None
         # Wird nur bei einer Aenderung gerufen, nicht bei jedem Nachlesen -
         # sonst haengt an jedem Poll eine Auswertung.
         self._on_battery = on_battery
@@ -732,11 +737,18 @@ class ClawdmeterLink:
             except Exception:
                 pass
 
+    def _current_corner(self) -> bool:
+        try:
+            return bool(self._corner_provider())
+        except Exception:
+            return False
+
     def _anim_changed(self) -> bool:
         if self._last_payload is None:
             return False            # noch keine Zahlen -> nichts zu ergaenzen
         try:
-            return self._current_anim() != self._last_anim
+            return (self._current_anim() != self._last_anim
+                    or self._current_corner() != self._last_corner)
         except Exception:
             return False
 
@@ -772,7 +784,10 @@ class ClawdmeterLink:
         payload = dict(self._last_payload)
         anim = self._current_anim()
         payload["a"] = anim          # "" = Geraet entscheidet selbst
+        corner = self._current_corner()
+        payload["ua"] = corner       # Buddy klein auf dem Usage-Screen
         self._last_anim = anim
+        self._last_corner = corner
 
         data = json.dumps(payload, separators=(",", ":")).encode()
         await client.write_gatt_char(RX_CHAR_UUID, data, response=False)

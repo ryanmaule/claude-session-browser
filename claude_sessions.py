@@ -3733,6 +3733,16 @@ class Api:
         except Exception:
             return ""
 
+    def _clawd_corner(self):
+        """Soll das Geraet den Buddy klein auf dem Usage-Screen zeigen?
+
+        Nur wenn ueberhaupt gespiegelt wird -- ohne Buddy-Spiegelung waehlt
+        das Geraet seine Animation selbst, dann waere eine zweite Anzeige
+        derselben Wahl in der Ecke bloss Unruhe."""
+        if not self.settings.get("clawdmeter_buddy", True):
+            return False
+        return bool(self.settings.get("buddy", {}).get("usage_screen_anim"))
+
     def _clawd_link(self):
         """Lazy-Init des BLE-Links. None wenn das Modul nicht verfuegbar ist."""
         link = getattr(self, "_clawdmeter", None)
@@ -3746,6 +3756,7 @@ class Api:
             address_provider=lambda: self.settings.get("clawdmeter_addr") or "",
             on_usage=self.on_usage_meta,
             anim_provider=self._clawd_anim,
+            corner_provider=self._clawd_corner,
             on_battery=self.on_clawd_battery)
         return self._clawdmeter
 

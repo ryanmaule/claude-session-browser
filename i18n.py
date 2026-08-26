@@ -423,7 +423,7 @@ TRANSLATIONS = {
             "Off shows the clock on the Clawdmeter as 12-hour time with AM/PM. "
             "Applies to the device only, not to this app.",
         "Gar nicht": "Not at all",
-        "(nur auf dem Clawdmeter)": "(only on the Clawdmeter)",
+        "(nur auf dem Usage-Screen)": "Only display Usage screen",
         "nur auf dem Gerät": "device only",
         "wartet auf Claude": "waiting for Claude",
         "wartet auf Fenster": "waiting for window",

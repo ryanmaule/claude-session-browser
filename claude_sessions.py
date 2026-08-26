@@ -6019,7 +6019,7 @@ async function renderBuddy(){
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_claude'?'checked':''} onchange="buddySet('visibility','when_claude')"> <span>Nur wenn Claude Code läuft <em class="ba-dim">(erkennt Terminal + <code>claude.exe</code>)</em></span></label>
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='always'?'checked':''} onchange="buddySet('visibility','always')"> <span>Immer sichtbar</span></label>
         <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='when_window'?'checked':''} onchange="buddySet('visibility','when_window')"> <span>Nur wenn dieses Fenster vorne ist:</span></label>
-        <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='never'?'checked':''} onchange="buddySet('visibility','never')"> <span>Gar nicht <em class="ba-dim">(nur auf dem Clawdmeter)</em></span></label>
+        <label class="ba-radio"><input type="radio" name="ba-vis" ${vis==='never'?'checked':''} onchange="buddySet('visibility','never')"> <span>Gar nicht <em class="ba-dim">(nur auf dem Usage-Screen)</em></span></label>
       </div>
       <div class="ba-window ${vis==='when_window'?'':'disabled'}">
         <input type="text" id="ba-target" placeholder="z.B. „claude" oder Titel-Ausschnitt" value="${esc(target)}"

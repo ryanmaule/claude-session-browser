@@ -417,6 +417,15 @@ TRANSLATIONS = {
         "Ordner":
             "Folder",
         "Uhr": "Clock",
+        "Das X beendet die App jetzt wirklich – Buddy, Clawdmeter und Benachrichtigungen laufen dann nicht mehr.":
+            "The X really does close the app now — the buddy, the Clawdmeter and "
+            "notifications all stop with it.",
+        "Die App startet automatisch nach dem Anmelden – praktisch damit der Buddy und der Tray-Modus sofort verfügbar sind. Registry-Eintrag unter HKCU\\Run.":
+            "The app starts on its own after you log in, so the buddy and the tray "
+            "are there straight away. Registry entry under HKCU\\Run.",
+        "Ohne Vorwarnung merkst du es erst bei 100 % – dann ist es zum Reagieren zu spät.":
+            "With no early warning you only notice at 100%, and by then it is too "
+            "late to do anything about it.",
         "24-Stunden-Anzeige": "24-hour display",
         "Die Uhrzeit, die das Clawdmeter auf dem Usage-Screen anzeigt.":
             "The time the Clawdmeter shows on the Usage screen.",

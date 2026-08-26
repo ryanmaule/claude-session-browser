@@ -35,6 +35,13 @@ import webview
 import i18n
 from i18n import t
 
+# Plattform-Flags. Muessen vor der ersten Verwendung stehen: die
+# Standardeinstellungen weiter unten lesen sie auf Modulebene, nicht
+# erst in einer Funktion.
+_IS_WIN = sys.platform == "win32"
+_IS_MAC = sys.platform == "darwin"
+_IS_LINUX = sys.platform.startswith("linux")
+
 # Nur damit PyInstaller die Tcl/Tk-Daten mit-buendelt (der eigentliche Import
 # passiert lazy im BuddyController-Thread).
 try:
@@ -1109,9 +1116,6 @@ def resume_session(session_id, cwd, settings, project=""):
 # --------------------------------------------------------------------------- #
 #  Buddy-Controller (Tkinter-Fenster in eigenem Daemon-Thread)
 # --------------------------------------------------------------------------- #
-_IS_WIN = sys.platform == "win32"
-_IS_MAC = sys.platform == "darwin"
-_IS_LINUX = sys.platform.startswith("linux")
 
 
 def _mac_enum_monitors():

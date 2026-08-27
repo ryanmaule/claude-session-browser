@@ -8,7 +8,9 @@ set -e
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
 VERSION="$(/usr/bin/python3 -c 'import json;print(json.load(open("version.json"))["version"])')"
-STAGE="$(mktemp -d)/dmg"
+TMP="$(mktemp -d)"
+trap 'rm -rf "$TMP"' EXIT      # sonst bleibt bei jedem Bauen ein Ordner liegen
+STAGE="$TMP/dmg"
 OUT="$SRC/dist"
 DMG="$OUT/ClaudeSessionBrowser-macOS.dmg"
 

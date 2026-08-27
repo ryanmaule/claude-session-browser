@@ -1,7 +1,7 @@
 {
-  "version": "1.4.0.4",
-  "notes": "Release notes now follow the language of the app. They come from this manifest as free text, so they never went through the translation table -- the English window was showing whatever happened to be written here, which was German. Also fixes the last German string in the English window: the autostart description under Settings.",
+  "version": "1.4.0.5",
+  "notes": "Fixes a broken 1.4.0.4: the app installed from the disk image quit the instant it was opened. The launcher had the path to its own script baked in at build time, and a disk image is built in a temporary folder that is gone afterwards. It now finds the script next to itself.",
   "url": "https://github.com/ryanmaule/claude-session-browser/releases/latest",
   "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg",
-  "notes_de": "Die Versionshinweise richten sich jetzt nach der Sprache der App. Sie stehen als freier Text in diesem Manifest und gingen deshalb nie durch die Uebersetzungstabelle -- im englischen Fenster stand, was hier zufaellig geschrieben war. Ausserdem behoben: die Autostart-Beschreibung in den Einstellungen, der letzte deutsche Satz im englischen Fenster."
+  "notes_de": "Behebt ein kaputtes 1.4.0.4: die aus dem Image installierte App war sofort wieder weg. Im Starter stand der Pfad zum Skript fest verdrahtet, und ein Image entsteht in einem Temp-Ordner, den es danach nicht mehr gibt. Der Starter sucht das Skript jetzt neben sich selbst."
 }

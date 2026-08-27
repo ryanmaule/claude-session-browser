@@ -155,9 +155,41 @@ LAUNCH_SRC="$(mktemp -d)/csb-launcher.c"
 cat > "$LAUNCH_SRC" <<LAUNCHER
 #include <Python.h>
 #include <string.h>
+#include <limits.h>
+#include <stdlib.h>
+#include <mach-o/dyld.h>
+#include <unistd.h>
+
+// Den Skriptpfad NICHT einbacken. Das Bundle wird woanders gebaut als es
+// spaeter liegt -- ein DMG entsteht in einem Temp-Ordner, der danach
+// verschwindet, und die App startete dann kommentarlos gar nicht: Python fand
+// die Datei nicht und war sofort wieder weg. Also vom eigenen Programmpfad
+// ausgehen: MacOS/<exe> -> ../Resources/app/claude_sessions.py.
+static const char *script_beside_me(char *buf, size_t cap) {
+    char exe[PATH_MAX];
+    uint32_t size = sizeof(exe);
+    if (_NSGetExecutablePath(exe, &size) != 0) return NULL;
+    char real[PATH_MAX];
+    if (!realpath(exe, real)) return NULL;
+    char *slash = strrchr(real, '/');          // .../Contents/MacOS/<exe>
+    if (!slash) return NULL;
+    *slash = '\0';
+    slash = strrchr(real, '/');                 // .../Contents/MacOS
+    if (!slash) return NULL;
+    *slash = '\0';                              // .../Contents
+    int n = snprintf(buf, cap, "%s/Resources/app/claude_sessions.py", real);
+    if (n <= 0 || (size_t)n >= cap) return NULL;
+    // Im --dev-Modus gibt es das im Bundle nicht; dann faellt main() auf den
+    // Pfad aus dem Checkout zurueck.
+    return access(buf, R_OK) == 0 ? buf : NULL;
+}
 
 int main(int argc, char **argv) {
-    const char *script = "$RUNDIR/claude_sessions.py";
+    char script_buf[PATH_MAX];
+    const char *found = script_beside_me(script_buf, sizeof(script_buf));
+    // Im --dev-Modus liegt das Skript nicht im Bundle, sondern im Checkout;
+    // dann gilt weiterhin der beim Bauen bekannte Pfad.
+    const char *script = found ? found : "$RUNDIR/claude_sessions.py";
     int app_launch = argc == 1;
     for (int i = 1; i < argc; ++i) {
         if (strncmp(argv[i], "-psn_", 5) != 0) {

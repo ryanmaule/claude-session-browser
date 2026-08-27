@@ -23,6 +23,17 @@
 
 ---
 
+> ### This is the macOS port
+>
+> [juppeee](https://github.com/juppeee/claude-session-browser) wrote this app,
+> for Windows. This fork adds macOS: the menu bar icon and Dock behaviour, the
+> app bundle, and the Bluetooth link to a Clawdmeter. Windows behaviour is
+> unchanged, but **on Windows you want [his build](https://github.com/juppeee/claude-session-browser/releases/latest)**
+> — it has an installer and releases; this fork has neither.
+>
+> **If you use a Clawdmeter, it needs [our firmware](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy).**
+> See [Clawdmeter](#clawdmeter) for what each firmware understands.
+
 Claude Code keeps every session on disk under `~/.claude/projects`, but getting
 back into one means digging out a session ID and typing `claude --resume`. This
 app lists them all — title, folder, message count, when you last touched it —
@@ -44,7 +55,7 @@ and puts you back into one with a double-click.
 - **One click back in** — opens Terminal.app (macOS) or Windows Terminal/`cmd` (Windows) with the session resumed
 - **Know where your quota stands** — 5-hour and weekly usage with a live countdown to the reset
 - **Get told, not surprised** — a heads-up before the limit is full, and a notification when it resets
-- **[Clawd](#clawd-your-desktop-buddy)** — a 20×20 pixel buddy on your desktop who acts out what Claude is doing
+- **[Clawd](#clawd-your-desktop-buddy)** — a 20×20 pixel buddy on your desktop who acts out what Claude is doing (the desktop window is Windows only)
 - **[Clawdmeter](#clawdmeter) support** — tell a real device what Claude is doing, over Bluetooth (Windows and macOS; [our firmware](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy) required)
 - **German and English** language support
 - **Updates itself** from GitHub
@@ -93,26 +104,23 @@ What differs from Windows:
 - **Tk is optional.** Without `python-tk` the limit-reset toast and monitor detection
   stay quiet. Everything else, the Clawdmeter included, works without it.
 
-Quick start:
-```bash
-pip install pywebview
-python3 claude_sessions.py
-```
 
 ### Run from source (all platforms)
 
 ```bash
-git clone https://github.com/juppeee/claude-session-browser.git
+git clone https://github.com/ryanmaule/claude-session-browser.git
 cd claude-session-browser
-pip install pywebview
+pip install pywebview pystray Pillow bleak
 python3 claude_sessions.py
 ```
 
-**Windows only** — additional packages for tray icon and Clawdmeter:
+`pystray` and `Pillow` carry the tray icon — the system tray on Windows, the
+menu bar on macOS — and `bleak` talks to the Clawdmeter. Both platforms want
+all four; only `pywebview` is strictly required to browse sessions.
 
-```bash
-pip install pystray Pillow bleak
-```
+On macOS, running the script directly works but gives you no app bundle: no
+Dock name, no icon, and the menu bar icon only appears when launched from a
+terminal. Use `./make-macos-app.sh` for a real install.
 
 <details>
 <summary><b>Build your own installer (Windows)</b></summary>
@@ -290,11 +298,18 @@ The app compares its own `VERSION` against `version.json` in this repo on start.
 The app checks GitHub for updates by itself and offers to install them. No
 internet, no problem — the check is skipped silently.
 
+**On macOS, ignore it.** The check still points at juppeee's releases, and
+installing one is Windows-only in any case — it would replace this port with
+the Windows build if it could. Update by pulling this repository and running
+`./make-macos-app.sh` again.
+
 ### Windows
 **Settings → Apps → Claude Session Browser → Uninstall**
 
 ### macOS
-Delete the app from Applications folder, or use `pip uninstall` if installed via pip.
+Drag **Claude Session Browser** out of `/Applications`. The bundle is
+self-contained, so nothing else is left behind — delete your checkout and its
+`.venv` too if you are done with them.
 
 **All platforms:** Your sessions, titles and settings under `~/.claude` survive. Delete
 `session_browser_settings.json` and `session_titles.json` by hand if you want
@@ -308,7 +323,7 @@ Talking to it is one feature of this app among many. The Session Browser is firs
 
 **Clawd himself** comes from [claudepix](https://claudepix.vercel.app) by [@amaanbuilds](https://x.com/amaanbuilds), a library of pixel-art Clawd sprites — the same source Hermann's firmware draws on. Some of the animations here were taken from there, others inspired by it, and nearly all have been reworked or redrawn since. Go and have a look, it's where Clawd got his face.
 
-What this project adds on top of Hermann's work is two things: the Bluetooth connection for Windows (his daemon is a Linux shell script built on bluez), and **activity-driven animations**. Upstream picks an animation from how fast your quota is burning — a rate measured over a six-sample ring buffer and grouped into calm / normal / active / heavy. It cannot know *what* Claude is doing. The Session Browser reads the session transcripts, works out the actual state — thinking, writing code, waiting for permission, out of quota — and tells the device which animation to show. Turn that off and the device falls back to Hermann's usage groups.
+What this project adds on top of Hermann's work is two things: the Bluetooth connection for Windows and macOS (his daemon is a Linux shell script built on bluez), and **activity-driven animations**. Upstream picks an animation from how fast your quota is burning — a rate measured over a six-sample ring buffer and grouped into calm / normal / active / heavy. It cannot know *what* Claude is doing. The Session Browser reads the session transcripts, works out the actual state — thinking, writing code, waiting for permission, out of quota — and tells the device which animation to show. Turn that off and the device falls back to Hermann's usage groups.
 
 ## License
 

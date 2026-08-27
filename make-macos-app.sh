@@ -169,6 +169,11 @@ echo "==> Signing"
 codesign --force -s - "$APP/Contents/MacOS/$APP_EXEC" 2>/dev/null || \
     echo "  warning: could not sign the interpreter; the app may refuse to start"
 
+# Replacing the bundle leaves LaunchServices pointing at what used to be here,
+# and `open -a` then says it cannot find the app at all. Re-register it.
+LSREG="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+[ -x "$LSREG" ] && "$LSREG" -f "$APP" 2>/dev/null || true
+
 # Drop the quarantine flag so Finder does not refuse a locally built bundle.
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 touch "$APP"

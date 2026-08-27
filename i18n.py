@@ -426,6 +426,8 @@ TRANSLATIONS = {
         "Ohne Vorwarnung merkst du es erst bei 100 % – dann ist es zum Reagieren zu spät.":
             "With no early warning you only notice at 100%, and by then it is too "
             "late to do anything about it.",
+        "Nur unter Windows: das Tray-Icon würde die App auf dem Mac beim Start abbrechen.":
+            "Windows only — on macOS the tray icon would abort the app on start.",
         "24-Stunden-Anzeige": "24-hour display",
         "Die Uhrzeit, die das Clawdmeter auf dem Usage-Screen anzeigt.":
             "The time the Clawdmeter shows on the Usage screen.",

@@ -3590,6 +3590,9 @@ class Api:
             "home": HOME,
             "version": VERSION,
             "onboarding_version": ONBOARDING_VERSION,
+            # Die Seite muss wissen, wo sie laeuft: der Tray-Schalter darf nur
+            # unter Windows anfassbar sein.
+            "is_win": _IS_WIN,
         }
 
     # -- von JS aufgerufen --
@@ -4047,6 +4050,8 @@ class Api:
         tray = getattr(self, "_tray", None)
         if not tray:
             return {"ok": False}
+        if not _IS_WIN:
+            return {"ok": False}   # siehe oben: startet den Prozess ab
         try:
             if on:
                 tray.start()
@@ -6307,8 +6312,9 @@ function renderSettings(){
       <div class="row2">
         <div><div class="lbl">Im Hintergrund weiterlaufen</div>
           <div class="desc">Wenn aktiv, versteckt der X-Button die App nur (Icon im System-Tray unten rechts, Klick öffnet sie wieder).</div>
-          ${st.close_to_tray===false ? `<div class="warnnote">${ic('warn')}<span>Das X beendet die App jetzt wirklich – Buddy, Clawdmeter und Benachrichtigungen laufen dann nicht mehr.</span></div>` : ''}</div>
-        <div class="toggle ${st.close_to_tray!==false?'on':''}" onclick="toggleTray(this)"></div>
+          ${st.close_to_tray===false ? `<div class="warnnote">${ic('warn')}<span>Das X beendet die App jetzt wirklich – Buddy, Clawdmeter und Benachrichtigungen laufen dann nicht mehr.</span></div>` : ''}
+          ${STATE.is_win ? '' : `<div class="warnnote">${ic('warn')}<span>Nur unter Windows: das Tray-Icon würde die App auf dem Mac beim Start abbrechen.</span></div>`}</div>
+        <div class="toggle ${st.close_to_tray!==false?'on':''} ${STATE.is_win?'':'disabled'}" ${STATE.is_win?`onclick="toggleTray(this)"`:''}></div>
       </div>
       <button class="btn danger" onclick="reallyQuit()" style="margin-top:12px">App jetzt komplett beenden</button>
     </div>
@@ -7452,7 +7458,11 @@ def main():
 
     tray = TrayManager(lambda: (webview.windows[0] if webview.windows else None),
                        real_quit)
-    if s.get("close_to_tray", True):
+    # Nur unter Windows. pystray fuehrt auf dem Mac [NSApplication run] aus,
+    # und das muss im Hauptthread laufen -- von einem Nebenthread aus bricht
+    # AppKit mit SIGTRAP ab. Kein Traceback, kein Fenster, die App ist einfach
+    # weg. Der Schalter steht per Vorgabe auf aus, liess sich aber einschalten.
+    if _IS_WIN and s.get("close_to_tray", True):
         tray.start()
 
     def on_before_close():

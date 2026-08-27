@@ -56,7 +56,7 @@ logging.getLogger("pywebview").setLevel(logging.CRITICAL)
 # ----- Version & Update ---------------------------------------------------- #
 # Vierte Stelle = die Mac-Fassung. So bleibt erkennbar, auf welchem Stand von
 # juppeee sie sitzt, und _vtuple() sortiert sie trotzdem ueber die 1.4.0.
-VERSION = "1.4.0.7"
+VERSION = "1.4.0.8"
 # Wird beim GitHub-Setup auf dein echtes Repo gesetzt (OWNER/REPO):
 # Auf unsere eigene Fassung zeigen: eine neue Version von juppeee heisst fuer
 # einen Mac gar nichts -- sein Installer laeuft dort nicht, und sie waere ohne
@@ -398,6 +398,40 @@ def _decode_buddy_anims():
 
 
 BUDDY_ANIMS = _decode_buddy_anims()
+
+
+def _reset_message(kind):
+    """Was gemeldet wird, wenn ein Fehlerzustand vorbei ist.
+
+    Drei Ursachen halten Claude auf -- ein verbrauchtes Limit, eine abgelaufene
+    Anmeldung, eine ueberlastete API -- und alle drei zeigen dasselbe saure
+    Gesicht, weil es nur eine "limit"-Animation gibt. Gesagt werden darf
+    trotzdem nur, was zutrifft: eine halbe Minute Ueberlast als "dein Limit ist
+    zurueck" zu melden ist genau die Falschmeldung, die hier nicht mehr
+    vorkommen soll.
+    """
+    if kind == "auth_required":
+        return t("Claude ist wieder angemeldet.")
+    if kind == "api_overloaded":
+        return t("Claude antwortet wieder.")
+    return t("Dein Claude-Limit ist zurück – weitermachen!")
+
+
+def _reset_card(kind):
+    """Dasselbe fuer die Karte: (Ueberschrift, Zeile darunter).
+
+    Die Karte haengt an keinem Tray-Icon -- unter Windows ist sie das, was
+    ankommt, wenn das Icon abgeschaltet ist. Sie darf deshalb nicht
+    verschwinden, nur weil die Ursache keine Limit-Ursache war; sie muss
+    lediglich etwas anderes sagen.
+    """
+    weiter = t("Du kannst weitermachen")
+    if kind == "auth_required":
+        return t("Claude ist wieder angemeldet."), weiter
+    if kind == "api_overloaded":
+        return t("Claude antwortet wieder."), weiter
+    return t("Dein Claude-Limit ist zurückgesetzt"), weiter
+
 
 # Mapping von "detektiertem Zustand" -> Animations-Name.
 BUDDY_STATE_MAP = {
@@ -780,7 +814,13 @@ def _latest_jsonl_status(projects_dir, max_files=200, tail_kb=8):
         if err_type:
             is_limit = True
             limit_type = err_type
-            reset_at = _parse_reset_epoch(line_text)
+            # Eine Reset-Zeit gehoert nur zu einem echten Limit. Wuerde eine
+            # Anmelde- oder Ueberlastmeldung zufaellig "resets ..." enthalten,
+            # bekaeme sie einen Timer, der spaeter "dein Limit ist zurueck"
+            # meldet -- genau die Falschmeldung, die hier weg soll, nur ueber
+            # den Umweg der Zeitschaltung.
+            if err_type == "rate_limited":
+                reset_at = _parse_reset_epoch(line_text)
             break
         # Wenn wir eine erfolgreiche assistant-Nachricht finden, Limit aufheben
         if isinstance(obj, dict) and obj.get("type") == "assistant":
@@ -2329,7 +2369,7 @@ class BuddyController:
         if self.is_alive():
             self._q.put(("pulse", "surprise"))
 
-    def _notify_limit_reset(self):
+    def _notify_limit_reset(self, kind=None):
         """Meldet, dass das Limit zurueck ist. Doppel-Feuer wird via
         limit_reset_notified_for verhindert.
 
@@ -2345,20 +2385,23 @@ class BuddyController:
             self.api.settings.get("limit_reset_notified_for", 0) or 0)
         if reset_at > 0 and abs(notified_for - reset_at) < 30:
             return
-        # Karte zeigen
+        # Karte zeigen -- mit dem Text zur Ursache. Nicht weglassen: unter
+        # Windows ohne Tray-Icon ist sie die einzige Meldung, die ankommt.
         try:
             toast = getattr(self.api, "_reset_toast", None)
             if toast is None:
                 toast = LimitResetToast()
                 self.api._reset_toast = toast
-            toast.show(avoid=self._pub_rect)
+            card_title, card_sub = _reset_card(kind)
+            toast.show(title=card_title, subtitle=card_sub,
+                       avoid=self._pub_rect)
         except Exception:
             pass
         # Systembenachrichtigung. Unter Windows die Zugabe zur Karte, auf dem
         # Mac die ganze Meldung -- deshalb ueber _notify_system(), das dort
         # auch ohne Menueleisten-Icon zustellt.
         _notify_system(getattr(self.api, "_tray", None),
-                       t("Dein Claude-Limit ist zurück – weitermachen!"))
+                       _reset_message(kind))
         # Buddy kurz "surprise" spielen wenn er sichtbar ist
         try:
             if self.is_alive():
@@ -2471,7 +2514,9 @@ class BuddyController:
                         int_state = status.get("internal_state", "")
                         if int_state in _WORKING_STATES or int_state == "done":
                             try:
-                                self._notify_limit_reset()
+                                # Die Ursache mitgeben, bevor sie geloescht
+                                # wird -- sonst heisst jede Stoerung "Limit".
+                                self._notify_limit_reset(state.get("limit_type"))
                             except Exception:
                                 pass
                             state["is_limited"] = False

@@ -1,7 +1,7 @@
 {
-  "version": "1.4.0.7",
-  "notes": "Clawd stops getting angry over limits that never happened. A failed command counted as an error, and its output was then searched for words — so a hostname containing “auth” was enough to claim your login had expired. Across one morning that fired twelve times. Only what Claude itself records as an API error counts now; the output of your commands never does.",
+  "version": "1.4.0.8",
+  "notes": "A short API outage is no longer reported as a usage limit. Three different problems stop Claude working — a spent limit, an expired login, an overloaded API — and all three wear the same cross face, because there is only one of those. They were also all announced the same way, so half a minute of Anthropic having a bad day arrived as “your Claude limit is back”. Each now says what actually happened, in the notification and on the card that comes with it.",
   "url": "https://github.com/ryanmaule/claude-session-browser/releases/latest",
   "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg",
-  "notes_de": "Clawd wird nicht mehr sauer über Limits, die es nie gab. Ein fehlgeschlagenes Kommando galt als Fehler, und danach wurde seine Ausgabe nach Wörtern durchsucht — ein Hostname mit „auth“ darin reichte für die Meldung, die Anmeldung sei abgelaufen. An einem Vormittag kam das zwölfmal vor. Es zählt jetzt nur noch, was Claude selbst als API-Fehler ablegt, nie die Ausgabe deiner Kommandos."
+  "notes_de": "Eine kurze API-Störung wird nicht mehr als Limit gemeldet. Drei verschiedene Dinge halten Claude auf — ein verbrauchtes Limit, eine abgelaufene Anmeldung, eine überlastete API — und alle drei tragen dasselbe saure Gesicht, weil es nur eines gibt. Gemeldet wurden sie auch alle gleich, eine halbe Minute Überlast kam also als „dein Claude-Limit ist zurück“ an. Jedes sagt jetzt, was wirklich war — in der Benachrichtigung und auf der Karte dazu."
 }

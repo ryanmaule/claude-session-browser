@@ -29,7 +29,7 @@ def detect(line):
     with open(os.path.join(proj, "session.jsonl"), "w") as fh:
         fh.write(json.dumps(line) + "\n")
     st = cs._latest_jsonl_status(tmp)
-    return st["is_limit"], st["limit_type"]
+    return st["is_limit"], st["limit_type"], st["reset_at"]
 
 
 def tool_result(text, is_error=True):
@@ -91,21 +91,60 @@ MUST_FIRE = [
 
 fails = []
 for name, line in MUST_NOT_FIRE:
-    fired, kind = detect(line)
+    fired, kind, _ = detect(line)
     if fired:
         fails.append(f"FALSE POSITIVE: {name} -> {kind}")
 for name, line, expected in MUST_FIRE:
-    fired, kind = detect(line)
+    fired, kind, _ = detect(line)
     if not fired:
         fails.append(f"MISSED: {name} (expected {expected})")
     elif kind != expected:
         fails.append(f"WRONG KIND: {name} -> {kind}, expected {expected}")
 
-total = len(MUST_NOT_FIRE) + len(MUST_FIRE)
+# Und was gemeldet wird, wenn der Zustand vorbei ist: nur ein echtes Limit
+# darf als Limit durchgehen. Eine halbe Minute API-Ueberlast als "dein Limit
+# ist zurueck" zu melden waere dieselbe Falschmeldung durch die Hintertuer.
+# Sprachunabhaengig geprueft: das Wort "Limit" heisst in beiden Sprachen so.
+WORDING = ["rate_limited", None, "auth_required", "api_overloaded"]
+limit_msg = cs._reset_message("rate_limited")
+if "limit" not in limit_msg.lower():
+    fails.append(f"limit message says nothing about a limit: {limit_msg!r}")
+if cs._reset_message(None) != limit_msg:
+    fails.append("unknown cause should fall back to the limit message")
+for kind in ("auth_required", "api_overloaded"):
+    msg = cs._reset_message(kind)
+    if "limit" in msg.lower():
+        fails.append(f"CALLS IT A LIMIT: {kind} -> {msg!r}")
+    if msg == limit_msg:
+        fails.append(f"{kind} reuses the limit message verbatim")
+    # Die Karte haengt an keinem Tray-Icon und ist unter Windows ohne Icon die
+    # einzige Meldung -- sie muss kommen, nur mit anderem Text.
+    title, sub = cs._reset_card(kind)
+    if not title or not sub:
+        fails.append(f"{kind} has no card text -- it would show nothing")
+    if "limit" in title.lower():
+        fails.append(f"CARD CALLS IT A LIMIT: {kind} -> {title!r}")
+
+# Eine Reset-Zeit gehoert nur zu einem echten Limit: sonst faellt spaeter ein
+# Timer "dein Limit ist zurueck" -- dieselbe Falschmeldung ueber die Uhr.
+_, _, rate_reset = detect(api_error(
+    "You've hit your session limit \u00b7 resets 11:10pm"))
+if not rate_reset:
+    fails.append("a real limit lost its reset time")
+for kind_name, line in [
+    ("auth", api_error("Session expired, resets 11:10pm", status=401,
+                       err="authentication_error")),
+    ("overload", api_error("Overloaded, resets 11:10pm", status=529,
+                           err="overloaded_error"))]:
+    _, _, reset = detect(line)
+    if reset:
+        fails.append(f"{kind_name} error was given a limit reset time")
+
+total = len(MUST_NOT_FIRE) + len(MUST_FIRE) + len(WORDING)
 if fails:
     print(f"FAIL ({len(fails)} of {total})")
     for f in fails:
         print("  -", f)
     sys.exit(1)
 print(f"PASS ({total} cases: {len(MUST_NOT_FIRE)} must stay quiet, "
-      f"{len(MUST_FIRE)} must fire)")
+      f"{len(MUST_FIRE)} must fire, {len(WORDING)} must be worded honestly)")

@@ -11,6 +11,9 @@ the upstream version it sits on.
 
 ---
 
+## v1.4.0.8 — August 27, 2026
+- Fixed a short API outage being announced as a usage limit. Three different things stop Claude working — a spent limit, an expired login, an overloaded API — and they all show the same cross face, because there is only one cross face. They were also all announced with the same words, so half a minute of the API being busy reached you as "your Claude limit is back". Each one now says what actually happened — the notification and, on Windows, the card that comes with it.
+
 ## v1.4.0.7 — August 27, 2026
 - Fixed Clawd turning angry over usage limits that never happened. A command that failed counted as an error, and the app then searched that command's output for words — so output containing "auth" was enough for it to announce that your login had expired. On one morning it did this twelve times. Only what Claude itself records as an API error counts now; the output of your own commands never does.
 

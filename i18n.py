@@ -244,6 +244,10 @@ TRANSLATIONS = {
             "Claude",
         "Claude Session Browser":
             "Claude Session Browser",
+        "Claude antwortet wieder.":
+            "Claude is responding again.",
+        "Claude ist wieder angemeldet.":
+            "Claude is signed in again.",
         "Claude-Befehl":
             "Claude command",
         "Claude-Buddy":

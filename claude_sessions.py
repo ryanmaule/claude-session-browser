@@ -7210,7 +7210,25 @@ def _acquire_single_instance():
     Rueckgabe: (owned, mutex_handle). owned=False -> zweite Instanz."""
     global _SINGLE_INSTANCE_LOCKFILE
     if not _IS_WIN:
-        return True, None
+        # Kein Named-Mutex ausserhalb von Windows. Eine exklusiv gesperrte
+        # Datei tut dasselbe: der zweite Prozess bekommt die Sperre nicht.
+        # Die Sperre haengt am offenen Deskriptor, der deshalb offen bleiben
+        # muss -- gibt das Betriebssystem den Prozess frei, faellt sie mit weg,
+        # auch nach einem Absturz. Kein Aufraeumen noetig.
+        try:
+            import fcntl
+            lock_dir = os.path.join(HOME, ".claude")
+            os.makedirs(lock_dir, exist_ok=True)
+            lf = open(os.path.join(lock_dir, ".session_browser.lock"), "w")
+            try:
+                fcntl.flock(lf.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError:
+                lf.close()
+                return False, None     # schon eine Instanz da
+            _SINGLE_INSTANCE_LOCKFILE = lf
+            return True, None
+        except Exception:
+            return True, None          # im Zweifel starten lassen
 
     # Ansatz 1: Named-Mutex
     mutex_says_first = True
@@ -7302,6 +7320,25 @@ def _position_is_usable(x, y, w, h):
     Verlangt wird nicht die volle Flaeche, sondern ein Stueck Titelleiste, das
     man mit der Maus noch treffen kann.
     """
+    if _IS_MAC:
+        # Dieselbe Rechnung wie unten, nur mit den Bildschirmen, die
+        # _mac_enum_monitors() kennt: liegt die gemerkte Stelle ganz ausserhalb
+        # (Monitor abgesteckt, Anordnung geaendert), soll sie verworfen werden.
+        try:
+            mons = _mac_enum_monitors()
+            if not mons:
+                return True
+            vx = min(m["left"] for m in mons)
+            vy = min(m["top"] for m in mons)
+            vw = max(m["right"] for m in mons) - vx
+            vh = max(m["bottom"] for m in mons) - vy
+            if vw <= 0 or vh <= 0:
+                return True
+            ox = min(x + w, vx + vw) - max(x, vx)
+            oy = min(y + h, vy + vh) - max(y, vy)
+            return ox >= 160 and oy >= 40
+        except Exception:
+            return True
     if not _IS_WIN:
         return True
     try:
@@ -7322,6 +7359,20 @@ def _restore_existing_window():
     """Sucht das Hauptfenster der laufenden Instanz und bringt es nach vorne
     (auch aus dem Tray heraus falls verstecked). Return True wenn was gefunden
     und aktiviert wurde."""
+    if _IS_MAC:
+        # Ueber System Events und den Prozessnamen, nicht ueber
+        # `tell application ... to activate`: das startet eine App, die nicht
+        # laeuft -- und wenn der Aufrufer selbst diese App ist, wartet sie auf
+        # sich selbst.
+        try:
+            r = subprocess.run(
+                ["osascript", "-e",
+                 'tell application "System Events" to set frontmost of the '
+                 'first process whose name is "Claude Session Browser" to true'],
+                capture_output=True, text=True, timeout=5)
+            return r.returncode == 0
+        except Exception:
+            return False
     if not _IS_WIN:
         return False
     try:

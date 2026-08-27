@@ -11,6 +11,9 @@ the upstream version it sits on.
 
 ---
 
+## v1.4.0.7 — August 27, 2026
+- Fixed Clawd turning angry over usage limits that never happened. A command that failed counted as an error, and the app then searched that command's output for words — so output containing "auth" was enough for it to announce that your login had expired. On one morning it did this twelve times. Only what Claude itself records as an API error counts now; the output of your own commands never does.
+
 ## v1.4.0.6 — August 27, 2026
 - Fixed the app quitting by itself on macOS. It happened about a minute after Clawd turned angry about a usage limit, and it left nothing behind — no error, no window, just a missing app. Reopening it always brought everything back, which made it easy to mistake for something your Claude account was doing.
 - Notifications now come from Claude Session Browser. They used to arrive under the name and icon of "Script Editor", a macOS scripting tool, which made them look like they came from something else entirely. They also now have their own entry in System Settings → Notifications, so you can control or silence them there.

@@ -56,7 +56,7 @@ logging.getLogger("pywebview").setLevel(logging.CRITICAL)
 # ----- Version & Update ---------------------------------------------------- #
 # Vierte Stelle = die Mac-Fassung. So bleibt erkennbar, auf welchem Stand von
 # juppeee sie sitzt, und _vtuple() sortiert sie trotzdem ueber die 1.4.0.
-VERSION = "1.4.0.6"
+VERSION = "1.4.0.7"
 # Wird beim GitHub-Setup auf dein echtes Repo gesetzt (OWNER/REPO):
 # Auf unsere eigene Fassung zeigen: eine neue Version von juppeee heisst fuer
 # einen Mac gar nichts -- sein Installer laeuft dort nicht, und sie waere ohne
@@ -509,6 +509,51 @@ _LIMIT_PATTERNS = re.compile(
 )
 
 
+# Teilmengen von _LIMIT_PATTERNS. Frueher entschied ein "authentication" oder
+# ein blosses "auth" irgendwo in der Zeile, ob es ein Anmelde- oder ein
+# Limit-Problem ist -- ein Hostname reichte. Wer die Art wissen will, fragt
+# jetzt hier, und der Rest faellt auf "Limit" zurueck.
+_AUTH_PATTERNS = re.compile(
+    r"(?:please run /login)"
+    r"|(?:401[^\n]{0,60}(?:oauth|access token|unauthori[sz]ed))"
+    r"|(?:access token has been revoked)"
+    r"|(?:\"type\":\s*\"authentication_error\")"
+    r"|(?:invalid[_ ]api[_ ]key)"
+    r"|(?:authentication[^\n]{0,20}failed)",
+    re.IGNORECASE,
+)
+_OVERLOAD_PATTERNS = re.compile(
+    r"(?:\"type\":\s*\"overloaded_error\")"
+    r"|(?:api error[^\n]{0,40}overloaded)"
+    r"|(?:api error[^\n]{0,40}server error mid.?response)"
+    r"|(?:\boverloaded\b)",
+    re.IGNORECASE,
+)
+
+
+def _message_text(obj):
+    """Der Text, den Claude selbst geschrieben hat -- ohne den JSON-Rahmen.
+
+    Frueher wurde die ganze Rohzeile nach Woertern durchsucht. Darin steht
+    aber auch alles, was ein Werkzeug ausgegeben hat, jeder Dateipfad und
+    jeder Schluesselname; "auth" und "error" finden sich darin fast immer.
+    """
+    out = []
+    msg = obj.get("message") if isinstance(obj, dict) else None
+    if isinstance(msg, dict):
+        content = msg.get("content")
+        if isinstance(content, str):
+            out.append(content)
+        elif isinstance(content, list):
+            for it in content:
+                if isinstance(it, dict) and it.get("type") == "text":
+                    out.append(str(it.get("text") or ""))
+    for key in ("errorText", "message_text", "content"):
+        val = obj.get(key) if isinstance(obj, dict) else None
+        if isinstance(val, str):
+            out.append(val)
+    return "\n".join(out)
+
 _RESET_HHMM_RE = re.compile(
     r"resets?\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*"
     r"(?:\(([^)]+)\))?", re.IGNORECASE)
@@ -615,9 +660,32 @@ def _latest_jsonl_status(projects_dir, max_files=200, tail_kb=8):
         return empty
 
     def _classify_error(obj, line_text):
-        """Klassifiziert einen Fehler in: rate_limited, auth_required, api_overloaded, oder None."""
+        """Klassifiziert einen Fehler in: rate_limited, auth_required,
+        api_overloaded, oder None.
+
+        Gefragt ist, ob *Claude* nicht weiterkann -- nicht, ob irgendein
+        Kommando schiefging. Beides sah hier lange gleich aus: ein
+        fehlgeschlagenes Werkzeug ist strukturell ein Fehler, und danach
+        wurde seine Ausgabe nach Woertern durchsucht. Ein Hostname mit
+        "auth" darin genuegte, und der Buddy meldete eine abgelaufene
+        Anmeldung. Am 27.08. kam das zwoelfmal an einem Vormittag vor.
+        """
         if not isinstance(obj, dict):
             return None
+
+        # Tool-Ergebnisse zaehlen nie. Ihr Inhalt ist fremder Text -- die
+        # Ausgabe eines Kommandos, eine Fehlermeldung von git, unser eigener
+        # Quelltext -- und ueber den darf die Limit-Erkennung nicht urteilen.
+        if obj.get("toolUseResult") is not None:
+            return None
+        _msg = obj.get("message")
+        if isinstance(_msg, dict):
+            _content = _msg.get("content")
+            if isinstance(_content, list):
+                for _it in _content:
+                    if isinstance(_it, dict) and _it.get("type") == "tool_result":
+                        return None
+
         # Strukturelle Fehler-Marker pruefen
         typ = obj.get("type")
         is_struct_error = typ in ("error", "tool_use_error", "system_error")
@@ -643,8 +711,8 @@ def _latest_jsonl_status(projects_dir, max_files=200, tail_kb=8):
             if isinstance(content, list):
                 for it in content:
                     if isinstance(it, dict):
-                        if it.get("is_error") or it.get("isError"):
-                            is_struct_error = True
+                        # tool_result-Bloecke sind oben schon ausgeschieden;
+                        # was hier noch ankommt, ist Claudes eigene Antwort.
                         if it.get("type") in ("tool_use_error", "error"):
                             is_struct_error = True
         # `error` kommt mal als Objekt, mal als blosser Text ("rate_limit").
@@ -668,15 +736,15 @@ def _latest_jsonl_status(projects_dir, max_files=200, tail_kb=8):
         if status_code in (500, 502, 503, 529) or "overload" in err_name:
             return "api_overloaded"
 
-        # Jetzt klassifizieren basierend auf Text-Patterns
-        lt = line_text.lower()
-        if "authentication" in lt or "auth" in lt and "error" in lt:
-            return "auth_required"
-        if obj.get("apiErrorType") == "overloaded" or "overloaded" in lt:
+        # Erst jetzt der Text -- und zwar der von Claude, nicht die Rohzeile.
+        text = _message_text(obj)
+        if obj.get("apiErrorType") == "overloaded":
             return "api_overloaded"
-        if _LIMIT_PATTERNS.search(line_text):
-            return "rate_limited"
-        if "rate" in lt and "limit" in lt:
+        if _AUTH_PATTERNS.search(text):
+            return "auth_required"
+        if _OVERLOAD_PATTERNS.search(text):
+            return "api_overloaded"
+        if _LIMIT_PATTERNS.search(text):
             return "rate_limited"
         # Generischer API-Error
         if obj.get("isApiError"):

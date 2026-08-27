@@ -48,10 +48,6 @@ if [ ! -x "$VENV" ]; then
     echo "Error: no virtualenv at $VENV"
     echo "Create one first:"
     echo "  /usr/bin/env python3 -m venv .venv && ./.venv/bin/pip install pywebview bleak pillow pystray"
-    echo
-    echo "Optional: brew install python-tk@3.13 -- without Tk the limit-reset"
-    echo "toast and monitor detection stay quiet, and there is no desktop"
-    echo "buddy. Everything else, the Clawdmeter included, works without it."
     exit 1
 fi
 if [ ! -w "$DEST" ]; then

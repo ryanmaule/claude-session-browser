@@ -88,7 +88,6 @@ There is no installer — you build the app bundle yourself:
 ```bash
 brew install python@3.13            # a framework build with headers; the Xcode CLT
                                     # Python will not do, the launcher links against it
-brew install python-tk@3.13         # optional, see below
 xcode-select --install              # for xcrun clang, if you do not have it
 
 git clone https://github.com/ryanmaule/claude-session-browser
@@ -109,8 +108,9 @@ What differs from Windows:
 - **There is no desktop buddy.** Its toolkit (Tk) needs the main thread, which the app
   window already owns. The state is still detected, so a connected Clawdmeter shows
   what Claude is doing — there is simply no character on the desktop.
-- **Tk is optional.** Without `python-tk` the limit-reset toast and monitor detection
-  stay quiet. Everything else, the Clawdmeter included, works without it.
+- **Tk is never used at all.** For the same reason, the limit-reset card is skipped and
+  the menu-bar notification carries that message instead; screen geometry comes from
+  `NSScreen`. You do not need `python-tk` on macOS, and the Clawdmeter is unaffected.
 
 
 ### Run from source (all platforms)

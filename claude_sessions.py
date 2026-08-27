@@ -56,7 +56,7 @@ logging.getLogger("pywebview").setLevel(logging.CRITICAL)
 # ----- Version & Update ---------------------------------------------------- #
 # Vierte Stelle = die Mac-Fassung. So bleibt erkennbar, auf welchem Stand von
 # juppeee sie sitzt, und _vtuple() sortiert sie trotzdem ueber die 1.4.0.
-VERSION = "1.4.0.5"
+VERSION = "1.4.0.6"
 # Wird beim GitHub-Setup auf dein echtes Repo gesetzt (OWNER/REPO):
 # Auf unsere eigene Fassung zeigen: eine neue Version von juppeee heisst fuer
 # einen Mac gar nichts -- sein Installer laeuft dort nicht, und sie waere ohne
@@ -1174,26 +1174,51 @@ def resume_session(session_id, cwd, settings, project=""):
 
 
 def _mac_enum_monitors():
-    """Get monitor information on macOS using Tkinter's screen geometry."""
-    try:
-        import tkinter as tk
-        root = tk.Tk()
-        root.withdraw()
-        monitors = []
-        screen_width = root.winfo_screenwidth()
-        screen_height = root.winfo_screenheight()
-        root.destroy()
+    """Monitorliste auf dem Mac -- das Gegenstueck zu _win_enum_monitors().
 
-        monitors.append({
-            "idx": 0,
-            "left": 0,
-            "top": 0,
-            "right": screen_width,
-            "bottom": screen_height,
-            "primary": True,
-            "label": f"{t('Primär')} · {screen_width}×{screen_height}"
-        })
-        return monitors
+    Ueber NSScreen, nicht ueber Tk: die Liste wird auch aus dem
+    pywebview-Thread heraus gebaut (Monitor-Auswahl in den Einstellungen), und
+    ein `tk.Tk()` reisst dort die ganze App mit -- Tk setzt beim
+    Initialisieren die Menueleiste, und AppKit besteht darauf, dass das auf dem
+    Hauptthread geschieht. NSScreen liest nur und darf das von ueberall.
+
+    Zwei Umrechnungen, damit die Werte zu denen von Windows passen: AppKit
+    zaehlt y von unten und vom primaeren Bildschirm aus, der Rest der App von
+    oben; und `visibleFrame` ist der Arbeitsbereich ohne Menueleiste und Dock,
+    also genau das, was rcWork unter Windows liefert.
+    """
+    try:
+        from AppKit import NSScreen
+
+        screens = list(NSScreen.screens())
+        if not screens:
+            raise RuntimeError("keine Bildschirme")
+        # screens()[0] traegt die Menueleiste. Seine Hoehe ist der Nullpunkt
+        # fuer die Umrechnung von unten-links auf oben-links.
+        primary_h = screens[0].frame().size.height
+
+        res = []
+        for i, sc in enumerate(screens):
+            v = sc.visibleFrame()
+            left = int(round(v.origin.x))
+            top = int(round(primary_h - (v.origin.y + v.size.height)))
+            res.append({
+                "left": left,
+                "top": top,
+                "right": left + int(round(v.size.width)),
+                "bottom": top + int(round(v.size.height)),
+                "primary": i == 0,
+            })
+        # Gleiche Reihenfolge wie unter Windows: primaer zuerst, dann
+        # oben->unten, links->rechts.
+        res.sort(key=lambda m: (0 if m["primary"] else 1, m["top"], m["left"]))
+        for i, m in enumerate(res):
+            w = m["right"] - m["left"]
+            h = m["bottom"] - m["top"]
+            tag = t("Primär") if m["primary"] else t("Monitor {nr}", nr=i + 1)
+            m["idx"] = i
+            m["label"] = f"{tag} · {w}×{h}"
+        return res
     except Exception:
         return [{
             "idx": 0,
@@ -1202,7 +1227,7 @@ def _mac_enum_monitors():
             "right": 1920,
             "bottom": 1080,
             "primary": True,
-            "label": f"{t('Primär')} · 1920×1080"
+            "label": f"{t('Primär')} · 1920×1080",
         }]
 
 
@@ -3263,6 +3288,16 @@ class LimitResetToast:
         self._t = None
 
     def show(self, title=None, subtitle=None, avoid=None):
+        # macOS: die Karte ist ein eigenes Tk-Fenster in einem eigenen Thread,
+        # und genau das ueberlebt AppKit nicht -- [NSWindow init...] besteht
+        # auf dem Hauptthread, und der gehoert hier pywebview. Das war kein
+        # stiller Verzicht auf die Karte, sondern ein SIGABRT ohne Traceback:
+        # die ganze App war weg, sobald ein Limit zurueckkam. Auf dem Mac
+        # traegt die Meldung deshalb allein die Tray-Notification -- die ist
+        # nativ, und _notify_limit_reset() schickt sie ohnehin schon.
+        # Gleiche Begruendung wie bei BuddyController._run().
+        if _IS_MAC:
+            return
         # Erst hier uebersetzen, nicht als Standardwert im Kopf: Standardwerte
         # werden beim Import ausgewertet, da steht die Sprache noch nicht fest.
         # `avoid` ist ein Rechteck (x, y, w, h), das die Karte freilassen soll -
@@ -7744,17 +7779,18 @@ def _acquire_single_instance():
     return owned, handle
 
 
+# Beide gehen auf dem Mac ueber _mac_enum_monitors() und damit ueber NSScreen.
+# Frueher stand hier ein `tk.Tk()`, und der Aufrufer ist der Tray-Menuepunkt
+# "Oeffnen" -- also nicht zwingend der Hauptthread. Tk dort anzufassen bringt
+# die App zum Absturz, siehe die Begruendung an _mac_enum_monitors().
 def _screen_w():
     try:
         if _IS_WIN:
             return int(ctypes.windll.user32.GetSystemMetrics(0))
         elif _IS_MAC:
-            import tkinter as tk
-            root = tk.Tk()
-            root.withdraw()
-            w = root.winfo_screenwidth()
-            root.destroy()
-            return w
+            mons = _mac_enum_monitors()
+            if mons:
+                return mons[0]["right"] - mons[0]["left"]
         return 1920
     except Exception:
         return 1920
@@ -7765,12 +7801,9 @@ def _screen_h():
         if _IS_WIN:
             return int(ctypes.windll.user32.GetSystemMetrics(1))
         elif _IS_MAC:
-            import tkinter as tk
-            root = tk.Tk()
-            root.withdraw()
-            h = root.winfo_screenheight()
-            root.destroy()
-            return h
+            mons = _mac_enum_monitors()
+            if mons:
+                return mons[0]["bottom"] - mons[0]["top"]
         return 1080
     except Exception:
         return 1080

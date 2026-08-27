@@ -77,6 +77,46 @@ TITLES_FILE = os.path.join(HOME, ".claude", "session_titles.json")
 SETTINGS_FILE = os.path.join(HOME, ".claude", "session_browser_settings.json")
 CLAUDE_SETTINGS_FILE = os.path.join(HOME, ".claude", "settings.json")
 
+# --------------------------------------------------------------------------
+# Protokoll
+# --------------------------------------------------------------------------
+# Der Clawdmeter-Link und die Limit-Ueberwachung laufen in eigenen Threads und
+# haben bisher jeden Fehler verschluckt: ClawdmeterLink faellt ohne log= auf
+# eine leere Funktion zurueck, und der Start steht in einem try/except: pass.
+# Von aussen sah "ausgeschaltet", "kaputt" und "falsches Geraet" deshalb genau
+# gleich aus. Eine Datei reicht, um das auseinanderzuhalten.
+LOG_FILE = os.path.join(
+    HOME, "Library", "Logs", "ClaudeSessionBrowser.log") if sys.platform == "darwin" else \
+    os.path.join(HOME, ".claude", "session_browser.log")
+
+_log = logging.getLogger("claude_session_browser")
+
+
+def _setup_logging():
+    """Datei-Protokoll einrichten. Schlaegt das fehl, laeuft die App weiter --
+    ein fehlendes Protokoll ist kein Grund, nicht zu starten."""
+    try:
+        os.makedirs(os.path.dirname(LOG_FILE), exist_ok=True)
+        from logging.handlers import RotatingFileHandler
+        h = RotatingFileHandler(LOG_FILE, maxBytes=512_000, backupCount=1,
+                                encoding="utf-8")
+        h.setFormatter(logging.Formatter("%(asctime)s  %(message)s",
+                                         "%Y-%m-%d %H:%M:%S"))
+        _log.addHandler(h)
+        _log.setLevel(logging.INFO)
+        _log.propagate = False
+    except Exception:
+        pass
+
+
+def app_log(msg):
+    """Eine Zeile ins Protokoll. Wird als log= an ClawdmeterLink und
+    UsageWatcher gereicht, damit deren Meldungen nicht ins Leere gehen."""
+    try:
+        _log.info("%s", msg)
+    except Exception:
+        pass
+
 # Hier legt der Hook ab, was Claude Code gerade meldet - eine Datei je
 # Session. Siehe _hook_entry().
 HOOK_DIR = os.path.join(HOME, ".claude", "csb_hooks")
@@ -3774,6 +3814,7 @@ class Api:
         except Exception:
             return None
         self._clawdmeter = ClawdmeterLink(
+            log=app_log,
             address_provider=lambda: self.settings.get("clawdmeter_addr") or "",
             on_usage=self.on_usage_meta,
             anim_provider=self._clawd_anim,
@@ -7332,6 +7373,7 @@ def _restore_existing_window():
 
 
 def main():
+    _setup_logging()
     # Hook-Aufruf: nur die Meldung wegschreiben und sofort wieder raus. Kein
     # Fenster, kein Einzelinstanz-Schloss - sonst wuerde jeder Hook-Aufruf
     # mit der laufenden App kollidieren.
@@ -7426,8 +7468,12 @@ def main():
             link = api._clawd_link()
             if link:
                 link.start()
-        except Exception:
-            pass
+            else:
+                app_log("Clawdmeter: Modul nicht verfügbar, Link nicht gestartet")
+        except Exception as e:
+            app_log(f"Clawdmeter: Start fehlgeschlagen: {e}")
+    else:
+        app_log("Clawdmeter: in den Einstellungen aus")
 
     # Limit-Ueberwachung. Laeuft auch ohne Clawdmeter-Hardware, pausiert aber
     # solange der BLE-Link dieselben Header ohnehin schon abfragt.
@@ -7440,6 +7486,7 @@ def main():
                 return bool(link and link.status().get("connected"))
 
             api._usage_watcher = UsageWatcher(api.on_usage_meta,
+                                              log=app_log,
                                               is_covered=_link_covers)
             api._usage_watcher.start()
         except Exception:
@@ -7464,6 +7511,9 @@ def main():
     # weg. Der Schalter steht per Vorgabe auf aus, liess sich aber einschalten.
     if _IS_WIN and s.get("close_to_tray", True):
         tray.start()
+    app_log(f"start: clawdmeter={bool(s.get('clawdmeter'))} "
+            f"buddy={bool(s.get('buddy', {}).get('enabled'))} "
+            f"mirror={bool(s.get('clawdmeter_buddy', True))}")
 
     def on_before_close():
         # Rueckgabewert True erlaubt Schliessen, False verhindert es.

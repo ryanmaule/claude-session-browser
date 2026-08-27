@@ -56,7 +56,7 @@ logging.getLogger("pywebview").setLevel(logging.CRITICAL)
 # ----- Version & Update ---------------------------------------------------- #
 # Vierte Stelle = die Mac-Fassung. So bleibt erkennbar, auf welchem Stand von
 # juppeee sie sitzt, und _vtuple() sortiert sie trotzdem ueber die 1.4.0.
-VERSION = "1.4.0.3"
+VERSION = "1.4.0.4"
 # Wird beim GitHub-Setup auf dein echtes Repo gesetzt (OWNER/REPO):
 # Auf unsere eigene Fassung zeigen: eine neue Version von juppeee heisst fuer
 # einen Mac gar nichts -- sein Installer laeuft dort nicht, und sie waere ohne
@@ -4652,6 +4652,17 @@ class Api:
             return True
         return False
 
+    @staticmethod
+    def _release_notes(data):
+        """Die Versionshinweise in der Sprache der Oberflaeche.
+
+        Sie stehen als freier Text im Manifest und gehen deshalb nicht durch
+        die Uebersetzungstabelle -- ohne diese Wahl steht im englischen
+        Fenster, was zufaellig im Manifest stand."""
+        return (data.get("notes_" + i18n.current())
+                or data.get("notes")
+                or "")
+
     def check_update(self):
         """Fragt bei GitHub nach einer neueren Version. Unterscheidet zwischen
         Netzwerk-Fehler und "wirklich aktuell" damit die UI unterscheiden kann."""
@@ -4662,7 +4673,7 @@ class Api:
             latest = data.get("version", "0")
             avail = _vtuple(latest) > _vtuple(VERSION)
             return {"available": avail, "latest": latest, "current": VERSION,
-                    "url": data.get("url", ""), "notes": data.get("notes", ""),
+                    "url": data.get("url", ""), "notes": self._release_notes(data),
                     "frozen": frozen, "error": ""}
         except Exception as e:
             # Explizit Fehler-Info liefern, damit die UI "Netzwerkfehler"

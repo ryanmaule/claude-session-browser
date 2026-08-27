@@ -1,6 +1,7 @@
 {
-  "version": "1.4.0.3",
-  "notes": "Die Beschreibung unter \\u201eSessions im Home-Ordner verstecken\\u201c blieb auf Englisch gestellt deutsch, weil der Satz den Ordnernamen enthaelt und damit nie zur Uebersetzungstabelle passte. Ausserdem sagt die Anleitung jetzt richtig, wie man die App nach dem Herunterladen freigibt: ueber Systemeinstellungen > Datenschutz & Sicherheit, nicht per Rechtsklick.",
+  "version": "1.4.0.4",
+  "notes": "Release notes now follow the language of the app. They come from this manifest as free text, so they never went through the translation table -- the English window was showing whatever happened to be written here, which was German. Also fixes the last German string in the English window: the autostart description under Settings.",
   "url": "https://github.com/ryanmaule/claude-session-browser/releases/latest",
-  "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg"
+  "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg",
+  "notes_de": "Die Versionshinweise richten sich jetzt nach der Sprache der App. Sie stehen als freier Text in diesem Manifest und gingen deshalb nie durch die Uebersetzungstabelle -- im englischen Fenster stand, was hier zufaellig geschrieben war. Ausserdem behoben: die Autostart-Beschreibung in den Einstellungen, der letzte deutsche Satz im englischen Fenster."
 }

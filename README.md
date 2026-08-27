@@ -5,7 +5,7 @@
 # Claude Session Browser
 
 [![Windows](https://img.shields.io/badge/Windows-10%20%7C%2011-0078d4)](https://github.com/juppeee/claude-session-browser/releases/latest)
-[![macOS](https://img.shields.io/badge/macOS-10.13+-000000)](MACOS_PORT_GUIDE.md)
+![macOS](https://img.shields.io/badge/macOS-10.13+-000000)
 [![Python](https://img.shields.io/badge/Python-3.11-3776ab)](https://www.python.org/)
 [![UI](https://img.shields.io/badge/UI-pywebview-ec7456)](https://pywebview.flowrl.com/)
 [![License](https://img.shields.io/badge/License-MIT-3ecf8e)](LICENSE)
@@ -63,7 +63,35 @@ business. The app starts by itself when the installer finishes.
 > ask again — the installed copy carries no "downloaded from the web" mark.
 
 ### macOS
-For detailed setup instructions, see [MACOS_PORT_GUIDE.md](MACOS_PORT_GUIDE.md).
+
+There is no installer — you build the app bundle yourself:
+
+```bash
+brew install python@3.13            # a framework build with headers; the Xcode CLT
+                                    # Python will not do, the launcher links against it
+brew install python-tk@3.13         # optional, see below
+xcode-select --install              # for xcrun clang, if you do not have it
+
+git clone https://github.com/ryanmaule/claude-session-browser
+cd claude-session-browser
+/usr/bin/env python3 -m venv .venv
+./.venv/bin/pip install pywebview bleak pillow pystray
+./make-macos-app.sh                 # installs into /Applications
+```
+
+Re-run `./make-macos-app.sh` after changing the source; the bundle carries its own
+copy. Pass `--dev` instead to link back to the checkout.
+
+What differs from Windows:
+
+- **The tray icon lives in the menu bar.** Closing the window hides the app there and
+  removes it from the Dock; opening it again from the menu bar brings both back, and
+  launching the app a second time reveals it too.
+- **There is no desktop buddy.** Its toolkit (Tk) needs the main thread, which the app
+  window already owns. The state is still detected, so a connected Clawdmeter shows
+  what Claude is doing — there is simply no character on the desktop.
+- **Tk is optional.** Without `python-tk` the limit-reset toast and monitor detection
+  stay quiet. Everything else, the Clawdmeter included, works without it.
 
 Quick start:
 ```bash

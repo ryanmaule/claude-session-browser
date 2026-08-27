@@ -13,7 +13,20 @@
 set -e
 
 SRC="$(cd "$(dirname "$0")" && pwd)"
-DEST="${1:-/Applications}"
+# Standardmaessig kommt alles mit ins Bundle: die App soll auch dann noch
+# starten, wenn dieses Verzeichnis umbenannt, verschoben oder geloescht wird.
+# --dev verweist stattdessen hierher, dann wirkt jede Aenderung sofort -- aber
+# das Bundle haengt an diesem Pfad.
+MODE=standalone
+ARGS=()
+for a in "$@"; do
+    case "$a" in
+        --dev)        MODE=dev ;;
+        --standalone) MODE=standalone ;;
+        *)            ARGS+=("$a") ;;
+    esac
+done
+DEST="${ARGS[0]:-/Applications}"
 APP="$DEST/Claude Session Browser.app"
 APP_EXEC="Claude Session Browser"   # Dock/Login-Items label = this file name
 VENV="$SRC/.venv/bin/python"
@@ -108,7 +121,21 @@ include-system-site-packages = false
 version = $("$VENV" -c 'import platform; print(platform.python_version())')
 CFG
 mkdir -p "$APP/Contents/lib"
-ln -sfn "$SRC/.venv/lib/python$PYVER" "$APP/Contents/lib/python$PYVER"
+if [ "$MODE" = dev ]; then
+    ln -sfn "$SRC/.venv/lib/python$PYVER" "$APP/Contents/lib/python$PYVER"
+    RUNDIR="$SRC"
+    echo "  dev mode: running from $SRC"
+else
+    echo "==> Copying app and packages into the bundle"
+    cp -R "$SRC/.venv/lib/python$PYVER" "$APP/Contents/lib/python$PYVER"
+    mkdir -p "$APP/Contents/Resources/app"
+    for f in "$SRC"/*.py "$SRC"/version.json; do
+        [ -e "$f" ] && cp "$f" "$APP/Contents/Resources/app/"
+    done
+    # docs/ traegt die Bilder, auf die die Oberflaeche verweist.
+    [ -d "$SRC/docs" ] && cp -R "$SRC/docs" "$APP/Contents/Resources/app/docs"
+    RUNDIR="$APP/Contents/Resources/app"
+fi
 
 cat > "$APP/Contents/MacOS/launcher" <<LAUNCHER
 #!/bin/bash
@@ -130,7 +157,7 @@ if /usr/bin/pgrep -f "\$SELF" >/dev/null 2>&1; then
     /usr/bin/osascript -e 'tell application "System Events" to set frontmost of the first process whose name is "$APP_EXEC" to true' >/dev/null 2>&1 || true
     exit 0
 fi
-cd "$SRC"
+cd "$RUNDIR"
 exec "\$SELF" claude_sessions.py
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/launcher"
@@ -147,7 +174,12 @@ xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true
 touch "$APP"
 
 echo "==> Installed: $APP"
-echo "    Source:    $SRC"
+if [ "$MODE" = dev ]; then
+    echo "    Runs from: $SRC  (--dev: moving or deleting it breaks the app)"
+else
+    echo "    Self-contained — this checkout can be moved or deleted."
+    echo "    Re-run this script after changing the source to update the app."
+fi
 echo
 echo "Start it from Spotlight or Launchpad. To have it start at login:"
 echo "  System Settings > General > Login Items > + > Claude Session Browser"

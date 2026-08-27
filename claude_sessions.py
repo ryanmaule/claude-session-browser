@@ -1231,6 +1231,41 @@ def _mac_enum_monitors():
         }]
 
 
+
+def _notify_system(tray, message, title="Clawd"):
+    """Systembenachrichtigung -- ueber das Tray-Icon, und auf dem Mac notfalls
+    auch ohne.
+
+    Das Menueleisten-Icon ist auf dem Mac abschaltbar und standardmaessig aus
+    (`close_to_tray`), und ohne Icon gibt es kein pystray, ueber das sich
+    benachrichtigen liesse. Frueher fiel das nicht auf: die Limit-Karte kam
+    trotzdem. Die gibt es auf dem Mac nicht mehr (siehe
+    LimitResetToast.show()), also waere die Meldung sonst ersatzlos
+    verschwunden.
+
+    Der Umweg kostet nichts: pystray ruft auf dem Mac genau dasselbe
+    osascript auf.
+    """
+    if tray is not None and getattr(tray, "icon", None):
+        try:
+            tray.icon.notify(message, title)
+            return True
+        except Exception:
+            pass
+    if not _IS_MAC:
+        return False
+    try:
+        subprocess.check_call(
+            ["osascript", "-e",
+             'display notification "{}" with title "{}"'.format(
+                 message.replace("\\", "\\\\").replace('"', '\\"'),
+                 title.replace("\\", "\\\\").replace('"', '\\"'))],
+            timeout=10)
+        return True
+    except Exception:
+        return False
+
+
 # Terminal-Programme, in denen die Claude-CLI ueblicherweise laeuft. Nur diese
 # werden nach Fenstern gefragt - „alle Prozesse" ueber System Events zu gehen
 # dauert je nach Rechner Sekunden, und der Cache haelt nur 2 s.
@@ -2185,9 +2220,13 @@ class BuddyController:
             self._q.put(("pulse", "surprise"))
 
     def _notify_limit_reset(self):
-        """Feuert die Limit-Reset-Karte (persistent, dismissible) + optional
-        Windows-Tray-Notification. Doppel-Feuer wird via
-        limit_reset_notified_for verhindert."""
+        """Meldet, dass das Limit zurueck ist. Doppel-Feuer wird via
+        limit_reset_notified_for verhindert.
+
+        Zwei Wege, und welche davon greifen, haengt vom System ab: unter
+        Windows die Karte (persistent, dismissible) *und* die
+        Systembenachrichtigung, auf dem Mac nur die Benachrichtigung -- die
+        Karte kann dort nicht gebaut werden, siehe LimitResetToast.show()."""
         if not self.api.settings.get("notify_limit_reset", True):
             return
         # Doppel-Schutz: fuer welche Reset-Zeit haben wir schon benachrichtigt?
@@ -2205,15 +2244,11 @@ class BuddyController:
             toast.show(avoid=self._pub_rect)
         except Exception:
             pass
-        # Zusaetzlich Tray-Notification als Bonus
-        tray = getattr(self.api, "_tray", None)
-        if tray and tray.icon:
-            try:
-                tray.icon.notify(
-                    t("Dein Claude-Limit ist zurück – weitermachen!"),
-                    "Clawd")
-            except Exception:
-                pass
+        # Systembenachrichtigung. Unter Windows die Zugabe zur Karte, auf dem
+        # Mac die ganze Meldung -- deshalb ueber _notify_system(), das dort
+        # auch ohne Menueleisten-Icon zustellt.
+        _notify_system(getattr(self.api, "_tray", None),
+                       t("Dein Claude-Limit ist zurück – weitermachen!"))
         # Buddy kurz "surprise" spielen wenn er sichtbar ist
         try:
             if self.is_alive():
@@ -2230,8 +2265,8 @@ class BuddyController:
             pass
 
     def _schedule_reset_timer(self, reset_at):
-        """Startet einen Timer-Thread der genau zur Reset-Zeit die Karte
-        feuert – unabhaengig davon ob gerade JSONL-Aktivitaet gepollt wird."""
+        """Startet einen Timer-Thread der genau zur Reset-Zeit meldet –
+        unabhaengig davon ob gerade JSONL-Aktivitaet gepollt wird."""
         try:
             delay = max(0.0, float(reset_at) - time.time())
         except (TypeError, ValueError):
@@ -4330,15 +4365,10 @@ class Api:
         """Tray-Meldung dass das 5h-Limit gleich voll ist."""
         mins = max(0, int((reset_at - time.time()) / 60))
         when = time.strftime("%H:%M", time.localtime(reset_at))
-        tray = getattr(self, "_tray", None)
-        if tray and tray.icon:
-            try:
-                tray.icon.notify(
-                    t("{pct}% deines 5-Stunden-Limits verbraucht. "
-                      "Zurückgesetzt um {when} – in {mins} Minuten.",
-                      pct=pct, when=when, mins=mins), "Clawd")
-            except Exception:
-                pass
+        _notify_system(getattr(self, "_tray", None),
+                       t("{pct}% deines 5-Stunden-Limits verbraucht. "
+                         "Zurückgesetzt um {when} – in {mins} Minuten.",
+                         pct=pct, when=when, mins=mins))
 
     def _kick_usage_poll(self):
         """Einmalige Ratelimit-Abfrage im Hintergrund.
@@ -6841,7 +6871,7 @@ function renderSettings(){
       <h2>${ic('bell')}Benachrichtigungen</h2>
       <div class="row2">
         <div><div class="lbl">Bei Limit-Reset benachrichtigen</div>
-          <div class="desc">Windows-Systembenachrichtigung wenn dein Claude-Limit sich zurückgesetzt hat und du wieder loslegen kannst. Braucht den System-Tray aktiv.</div></div>
+          <div class="desc">Systembenachrichtigung wenn dein Claude-Limit sich zurückgesetzt hat und du wieder loslegen kannst. Unter Windows kommt zusätzlich eine Karte auf den Bildschirm.</div></div>
         <div class="toggle ${st.notify_limit_reset!==false?'on':''}" onclick="toggleLimitNotif(this)"></div>
       </div>
       <div class="row2">

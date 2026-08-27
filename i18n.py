@@ -583,8 +583,8 @@ TRANSLATIONS = {
             "Welcome 👋",
         "Windows Terminal":
             "Windows Terminal",
-        "Windows-Systembenachrichtigung wenn dein Claude-Limit sich zurückgesetzt hat und du wieder loslegen kannst. Braucht den System-Tray aktiv.":
-            "Windows system notification when your Claude limit has reset and you can get going again. Needs the system tray enabled.",
+        "Systembenachrichtigung wenn dein Claude-Limit sich zurückgesetzt hat und du wieder loslegen kannst. Unter Windows kommt zusätzlich eine Karte auf den Bildschirm.":
+            "A system notification when your Claude limit has reset and you can get going again. On Windows a card appears on screen as well.",
         "Wird geladen…":
             "Loading…",
         "Wo Claude die Session-Dateien speichert. Wird automatisch gesucht, lässt sich aber überschreiben.":

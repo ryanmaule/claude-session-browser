@@ -1699,6 +1699,8 @@ def _claude_context_keys():
 
 
 _HWND_PROC_CACHE = {}
+# Sichtbarkeit des eigenen Fensters, 2 s gemerkt (siehe _app_window_visible).
+_APP_VISIBLE_CACHE = {"t": 0.0, "v": True}
 
 
 def _win_hwnd_process(hwnd):
@@ -2040,6 +2042,22 @@ class BuddyController:
     def _app_window_visible(self):
         """True wenn das Session-Browser-Hauptfenster gerade wirklich als
         sichtbares Fenster existiert (nicht im Tray minimiert/verstecked)."""
+        if _IS_MAC:
+            # Wird aus der Buddy-Schleife heraus gefragt, also oft. Ein
+            # osascript-Aufruf pro Durchlauf waere zu teuer -- zwei Sekunden
+            # Gedaechtnis reichen, so lange wie beim Claude-Kontext auch.
+            now = time.time()
+            if now - _APP_VISIBLE_CACHE["t"] < 2.0:
+                return _APP_VISIBLE_CACHE["v"]
+            _APP_VISIBLE_CACHE["t"] = now
+            # Ueber die eigene PID, nicht ueber den Namen: aus dem Bundle
+            # heisst der Prozess "Claude Session Browser", aus dem Quellbaum
+            # heraus schlicht "Python".
+            rc, out = _osa('tell application "System Events" to get visible of '
+                           f'(first process whose unix id is {os.getpid()})', timeout=3)
+            # Nicht ermittelbar -> als sichtbar behandeln, wie bisher.
+            _APP_VISIBLE_CACHE["v"] = True if rc != 0 else out.strip().lower() == "true"
+            return _APP_VISIBLE_CACHE["v"]
         if not _IS_WIN:
             return True
         try:
@@ -6952,6 +6970,47 @@ whenReady();
 # --------------------------------------------------------------------------- #
 #  Selbst-Installation (beim ersten Doppelklick der heruntergeladenen .exe)
 # --------------------------------------------------------------------------- #
+# Auf dem Mac gibt es keine Run-Registry: Autostart heisst "Login Item", und
+# das zeigt auf ein Programmbundle, nicht auf ein Skript. Ohne installiertes
+# Bundle gibt es also nichts einzutragen -- dann bleibt der Schalter aus.
+MAC_APP_NAME = "Claude Session Browser"
+MAC_APP_PATH = f"/Applications/{MAC_APP_NAME}.app"
+
+
+def _osa(script, timeout=6):
+    """AppleScript ausfuehren. (rc, stdout) -- rc != 0 heisst fehlgeschlagen."""
+    try:
+        r = subprocess.run(["osascript", "-e", script],
+                           capture_output=True, text=True, timeout=timeout)
+        return r.returncode, r.stdout.strip()
+    except Exception:
+        return 1, ""
+
+
+def _mac_autostart_installed():
+    return os.path.isdir(MAC_APP_PATH)
+
+
+def _mac_set_autostart(enable):
+    if not _mac_autostart_installed():
+        return False
+    if enable:
+        # Erst loeschen, damit kein zweiter Eintrag entsteht.
+        _osa(f'tell application "System Events" to delete login item "{MAC_APP_NAME}"')
+        rc, _ = _osa('tell application "System Events" to make login item at end '
+                     f'with properties {{path:"{MAC_APP_PATH}", hidden:false}}')
+        return rc == 0
+    _osa(f'tell application "System Events" to delete login item "{MAC_APP_NAME}"')
+    return True
+
+
+def _mac_autostart_enabled():
+    if not _mac_autostart_installed():
+        return False
+    rc, out = _osa('tell application "System Events" to get the name of every login item')
+    return rc == 0 and MAC_APP_NAME in out
+
+
 def _autostart_target_exe():
     """Pfad der zu startenden EXE fuer Autostart (installierte Kopie)."""
     if getattr(sys, "frozen", False):
@@ -6964,7 +7023,10 @@ def _autostart_target_exe():
 
 
 def set_autostart(enable):
-    """Windows-Autostart via HKCU\\...\\Run. `enable=False` entfernt Eintrag."""
+    """Windows-Autostart via HKCU\\...\\Run. `enable=False` entfernt Eintrag.
+    Auf dem Mac stattdessen ein Login Item fuer das installierte Bundle."""
+    if _IS_MAC:
+        return _mac_set_autostart(enable)
     if not _IS_WIN:
         return False
     try:
@@ -6996,6 +7058,8 @@ def is_autostart_enabled():
     """Liest den aktuellen Autostart-Status aus der Registry und prueft
     dass die referenzierte .exe wirklich existiert (verwaiste Eintraege
     werden als 'nicht aktiv' behandelt)."""
+    if _IS_MAC:
+        return _mac_autostart_enabled()
     if not _IS_WIN:
         return False
     try:

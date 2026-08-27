@@ -367,7 +367,12 @@ MACOS_AUTO = "auto"          # Platzhalter-"Adresse": das System-Geraet nehmen
 _HID_SERVICE = "1812"        # generischer HID-Dienst (auch fremde Tastaturen)
 _cb_state: dict = {"loop": None, "manager": None}
 # Was der Link-Thread zuletzt gesehen hat, fuer die Einstellungen.
-_macos_seen: dict = {"at": 0.0, "value": []}
+_macos_seen: dict = {"at": 0.0, "value": [], "error": None}
+
+
+def macos_bluetooth_error() -> str | None:
+    """Warum die Geraeteliste leer ist, oder None wenn alles in Ordnung war."""
+    return _macos_seen.get("error")
 
 
 async def _get_cb_manager():
@@ -405,7 +410,14 @@ async def macos_connected_devices() -> list:
 
     try:
         manager = await _get_cb_manager()
-    except Exception:
+    except Exception as e:
+        # Bluetooth aus oder nicht erlaubt. Die gemerkte Liste stehen lassen
+        # waere gelogen -- in den Einstellungen stuende weiter ein Geraet, das
+        # gerade nicht erreichbar ist. Also leeren und den Grund festhalten,
+        # damit "kein Geraet" von "kein Bluetooth" zu unterscheiden ist.
+        _macos_seen["at"] = time.time()
+        _macos_seen["value"] = []
+        _macos_seen["error"] = str(e) or "Bluetooth nicht verfügbar"
         return []
 
     cm = manager.central_manager
@@ -434,6 +446,7 @@ async def macos_connected_devices() -> list:
     _macos_seen["at"] = time.time()
     _macos_seen["value"] = [{"name": d["name"], "address": d["address"]}
                             for d in out]
+    _macos_seen["error"] = None
     return out
 
 

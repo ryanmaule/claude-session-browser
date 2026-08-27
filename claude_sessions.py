@@ -1232,6 +1232,40 @@ def _mac_enum_monitors():
 
 
 
+def _mac_post_notification(message, title):
+    """Benachrichtigung aus dem eigenen Prozess, damit sie das App-Symbol
+    traegt. False heisst nur "nicht zugestellt" - der Aufrufer hat einen
+    Ersatzweg.
+
+    NSUserNotification ist von Apple abgekuendigt, aber der Nachfolger
+    (UserNotifications) verlangt ein notarisiert signiertes Bundle mit
+    Berechtigung; diese App ist ad-hoc signiert. Solange das Framework
+    liefert, ist das hier der einzige Weg zum richtigen Symbol.
+
+    Ohne Bundle-Identitaet - etwa wenn das Skript direkt aus dem Checkout
+    laeuft - waere das Symbol das des Interpreters. Dann lieber gar nicht
+    hier zustellen, der Aufrufer nimmt osascript.
+    """
+    if not _IS_MAC:
+        return False
+    try:
+        from Foundation import (NSBundle, NSUserNotification,
+                                NSUserNotificationCenter)
+        bundle_id = NSBundle.mainBundle().bundleIdentifier() or ""
+        if not bundle_id or bundle_id.startswith("org.python"):
+            return False
+        center = NSUserNotificationCenter.defaultUserNotificationCenter()
+        if center is None:
+            return False
+        note = NSUserNotification.alloc().init()
+        note.setTitle_(title)
+        note.setInformativeText_(message)
+        center.deliverNotification_(note)
+        return True
+    except Exception:
+        return False
+
+
 def _notify_system(tray, message, title="Clawd"):
     """Systembenachrichtigung -- ueber das Tray-Icon, und auf dem Mac notfalls
     auch ohne.
@@ -1246,6 +1280,14 @@ def _notify_system(tray, message, title="Clawd"):
     Der Umweg kostet nichts: pystray ruft auf dem Mac genau dasselbe
     osascript auf.
     """
+    # Auf dem Mac zuerst selbst zustellen, und zwar aus diesem Prozess heraus.
+    # Der Grund ist das Symbol: `display notification` laeuft in einem
+    # osascript-Kind, und die Meldung erscheint deshalb als "Script Editor" --
+    # pystray macht es auf dem Mac genauso, es sah also noch nie nach dieser
+    # App aus. NSUserNotification traegt dagegen das Bundle des Absenders, und
+    # das ist hier die App. Klappt das nicht, bleibt der alte Weg.
+    if _IS_MAC and _mac_post_notification(message, title):
+        return True
     if tray is not None and getattr(tray, "icon", None):
         try:
             tray.icon.notify(message, title)

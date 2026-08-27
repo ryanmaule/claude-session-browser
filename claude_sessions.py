@@ -54,9 +54,14 @@ except Exception:
 logging.getLogger("pywebview").setLevel(logging.CRITICAL)
 
 # ----- Version & Update ---------------------------------------------------- #
-VERSION = "1.4.0"
+# Vierte Stelle = die Mac-Fassung. So bleibt erkennbar, auf welchem Stand von
+# juppeee sie sitzt, und _vtuple() sortiert sie trotzdem ueber die 1.4.0.
+VERSION = "1.4.0.1"
 # Wird beim GitHub-Setup auf dein echtes Repo gesetzt (OWNER/REPO):
-UPDATE_URL = "https://raw.githubusercontent.com/juppeee/claude-session-browser/main/version.json"
+# Auf unsere eigene Fassung zeigen: eine neue Version von juppeee heisst fuer
+# einen Mac gar nichts -- sein Installer laeuft dort nicht, und sie waere ohne
+# den macOS-Teil.
+UPDATE_URL = "https://raw.githubusercontent.com/ryanmaule/claude-session-browser/macos-ble-port/version.json"
 
 
 def _vtuple(v):
@@ -4806,7 +4811,7 @@ class Api:
         except Exception:
             return {"ok": False, "error": t("Kein Internet / Repo nicht erreichbar.")}
         page = data.get("url") or \
-            "https://github.com/juppeee/claude-session-browser/releases/latest"
+            "https://github.com/ryanmaule/claude-session-browser/releases/latest"
         installer_url = data.get("installer_url") or ""
         exe_url = data.get("exe_url") or ""
 
@@ -6375,6 +6380,7 @@ async function renderBuddy(){
   const data = await api.buddy_state();
   BUDDY = data;
   const b = data.config || {};
+  const st = (STATE && STATE.settings) || {};   // die Geraete-Karte liest daraus
   const anims = data.anims || [];
   const previewName = data.preview_name || 'idle breathe';
   const previewSrc = data.preview || '';
@@ -6410,6 +6416,60 @@ async function renderBuddy(){
   }).join('');
 
   document.getElementById('buddy-panel').innerHTML=`
+    <div class="card">
+      <h2>${ic('bluetooth')}Dein Clawdmeter-Gerät</h2>
+      <div class="sub">Schickt deine Claude-Auslastung per Bluetooth an ein Clawdmeter-Gerät. Es muss einmal in den Bluetooth-Einstellungen des Systems gekoppelt werden.</div>
+      <div class="row2">
+        <div><div class="lbl">Anbindung aktiv</div><div class="desc" id="clawd-status">…</div></div>
+        <div class="toggle ${st.clawdmeter?'on':''}" onclick="toggleClawd(this)"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Gerät</div><div class="desc">Welches gekoppelte Gerät benutzt wird.</div></div>
+        <select class="sel-input" id="clawd-dev" onchange="pickClawd(this.value)">
+          <option value="">Wird geladen…</option>
+        </select>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Zeigen, was Claude tut</div><div class="desc">Das Gerät zeigt die Animation zum erkannten Zustand — schreibt Claude gerade, denkt er nach, wartet er auf dich. Aus wählt das Gerät selbst eine nach Auslastung.</div></div>
+        <div class="toggle ${st.clawdmeter_buddy!==false?'on':''}" onclick="toggleClawdBuddy(this)"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Auch klein im Usage-Screen</div>
+          <div class="desc">Sonst nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.</div></div>
+        <div class="toggle ${(st.buddy||{}).usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Was das Gerät zeigt</div>
+          <div class="desc">Bei Aktivität heißt: taucht ein neuer Zustand auf, zeigt das Gerät fünf Sekunden lang den großen Clawd und geht dann zu den Zahlen zurück. Antippen schaltet in jedem Fall selbst um.</div></div>
+        <select class="sel-input" onchange="setClawdScreenMode(this.value)">
+          <option value="usage" ${(st.clawd_screen_mode||'usage')==='usage'?'selected':''}>Zahlen</option>
+          <option value="buddy" ${st.clawd_screen_mode==='buddy'?'selected':''}>Clawd</option>
+          <option value="auto" ${st.clawd_screen_mode==='auto'?'selected':''}>Bei Aktivität wechseln</option>
+        </select>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">24-Stunden-Uhr</div>
+          <div class="desc">Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.</div></div>
+        <div class="toggle ${st.clock_24h!==false?'on':''}" onclick="toggleClock24(this)"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Warnen wenn der Akku zur Neige geht</div>
+          <div class="desc">Meldet sich einmal, sobald der Akku des Geräts unter die Schwelle fällt. Erst nach dem Laden wieder.</div></div>
+        <div class="toggle ${st.notify_clawd_battery!==false?'on':''}" onclick="toggleClawdBattery(this)"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Schwelle für die Akku-Warnung</div>
+          <div class="desc">Ab wie viel Restladung gewarnt wird.</div></div>
+        <div><input type="number" min="5" max="90" step="5"
+             value="${st.clawd_battery_pct||15}" onchange="setClawdBatteryPct(this)"
+             style="width:74px;text-align:right"> %</div>
+      </div>
+      <div class="field">
+        <button class="btn accent" onclick="clawdReconnect(this)">Jetzt verbinden</button>
+        <button class="btn" onclick="loadClawdDevices(true)">Geräte neu suchen</button>
+      </div>
+    </div>
+
     <div class="card">
       <div class="ba-headline">
         <div>
@@ -6518,6 +6578,10 @@ async function renderBuddy(){
     </div>
   `;
   translateDom(document.getElementById('buddy-panel'));
+  // Die Geraete-Karte sitzt jetzt hier: Status und Geraeteliste muessen also
+  // beim Zeichnen dieser Seite anlaufen, nicht mehr in den Einstellungen.
+  refreshClawd();
+  loadClawdDevices(false);
 
   // BMP-Previews fuer alle Anims nachladen (nur wenn nicht im Cache)
   document.querySelectorAll('#buddy-panel img[data-anim]').forEach(async img=>{
@@ -6773,60 +6837,6 @@ function renderSettings(){
       </div>
     </div>
 
-    <div class="card">
-      <h2>${ic('bluetooth')}Clawdmeter</h2>
-      <div class="sub">Schickt deine Claude-Auslastung per Bluetooth an ein Clawdmeter-Gerät. Das Gerät muss einmalig in den Windows-Bluetooth-Einstellungen gekoppelt werden.</div>
-      <div class="row2">
-        <div><div class="lbl">Anbindung aktiv</div><div class="desc" id="clawd-status">…</div></div>
-        <div class="toggle ${st.clawdmeter?'on':''}" onclick="toggleClawd(this)"></div>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">Gerät</div><div class="desc">Welches gekoppelte Gerät benutzt wird.</div></div>
-        <select class="sel-input" id="clawd-dev" onchange="pickClawd(this.value)">
-          <option value="">Wird geladen…</option>
-        </select>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">Zeigen, was Claude tut</div><div class="desc">Das Gerät zeigt die Animation zum erkannten Zustand — schreibt Claude gerade, denkt er nach, wartet er auf dich. Aus wählt das Gerät selbst eine nach Auslastung.</div></div>
-        <div class="toggle ${st.clawdmeter_buddy!==false?'on':''}" onclick="toggleClawdBuddy(this)"></div>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">Auch klein im Usage-Screen</div>
-          <div class="desc">Sonst nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.</div></div>
-        <div class="toggle ${(st.buddy||{}).usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">Was das Gerät zeigt</div>
-          <div class="desc">Bei Aktivität heißt: taucht ein neuer Zustand auf, zeigt das Gerät fünf Sekunden lang den großen Clawd und geht dann zu den Zahlen zurück. Antippen schaltet in jedem Fall selbst um.</div></div>
-        <select class="sel-input" onchange="setClawdScreenMode(this.value)">
-          <option value="usage" ${(st.clawd_screen_mode||'usage')==='usage'?'selected':''}>Zahlen</option>
-          <option value="buddy" ${st.clawd_screen_mode==='buddy'?'selected':''}>Clawd</option>
-          <option value="auto" ${st.clawd_screen_mode==='auto'?'selected':''}>Bei Aktivität wechseln</option>
-        </select>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">24-Stunden-Uhr</div>
-          <div class="desc">Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.</div></div>
-        <div class="toggle ${st.clock_24h!==false?'on':''}" onclick="toggleClock24(this)"></div>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">Warnen wenn der Akku zur Neige geht</div>
-          <div class="desc">Meldet sich einmal, sobald der Akku des Geräts unter die Schwelle fällt. Erst nach dem Laden wieder.</div></div>
-        <div class="toggle ${st.notify_clawd_battery!==false?'on':''}" onclick="toggleClawdBattery(this)"></div>
-      </div>
-      <div class="row2">
-        <div><div class="lbl">Schwelle für die Akku-Warnung</div>
-          <div class="desc">Ab wie viel Restladung gewarnt wird.</div></div>
-        <div><input type="number" min="5" max="90" step="5"
-             value="${st.clawd_battery_pct||15}" onchange="setClawdBatteryPct(this)"
-             style="width:74px;text-align:right"> %</div>
-      </div>
-      <div class="field">
-        <button class="btn accent" onclick="clawdReconnect(this)">Jetzt verbinden</button>
-        <button class="btn" onclick="loadClawdDevices(true)">Geräte neu suchen</button>
-      </div>
-    </div>
-
     <div class="secthead" id="sect-app">App</div>
     <div class="card">
       <h2>${ic('update')}Updates</h2>
@@ -6873,8 +6883,6 @@ function renderSettings(){
   buildSettingsJump();
   refreshHooks();
   refreshLimit();
-  refreshClawd();
-  loadClawdDevices(false);
 }
 
 // ---- Limit-Anzeige ----

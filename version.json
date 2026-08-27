@@ -1,9 +1,6 @@
 {
-  "version": "1.4.0",
-  "notes": "Usage now shows what the API says: the settings page could sit at 100% while the account was barely used, because a limit message from hours ago outweighed the measured value. The reset card no longer ends up behind Clawd, and Clawd no longer gets stuck see-through when another window covers him. The settings now name the firmware fork you need if you want the device to show what Claude is doing.",
-  "url": "https://github.com/juppeee/claude-session-browser/releases/latest",
-  "exe_url": "https://github.com/juppeee/claude-session-browser/releases/latest/download/ClaudeSessionBrowser.exe",
-  "installer_url": "https://github.com/juppeee/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-Setup.exe",
-  "installer_sha256": "5e1e928cd0dedcb96a4940950fc1e0551d1f34879bdd86c9dead7448a38cfbda",
-  "sha256": "074cfc8719fb37f51b722008f7438e97a0b99d18855157a9a83b3bfcad5a3838"
+  "version": "1.4.0.1",
+  "notes": "Erste Fassung fuer den Mac. Das Menueleisten-Symbol erscheint jetzt auch beim Start aus dem Finder, die App laesst sich wieder beenden, und sie verschwindet beim Schliessen aus dem Dock. Das Clawdmeter zeigt, was Claude gerade tut, statt sich die Animation nach der Auslastung auszusuchen -- dafuer braucht das Geraet unsere Firmware.",
+  "url": "https://github.com/ryanmaule/claude-session-browser/releases/latest",
+  "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg"
 }

@@ -1,21 +1,17 @@
-# 🍎 This is the macOS fork
+# Claude Session Browser, macOS fork
 
-**Not the original.** [juppeee/claude-session-browser](https://github.com/juppeee/claude-session-browser)
-is the real project — Windows, with an installer and releases. **On Windows, go
-there instead.**
+juppeee's app, ported to macOS. His is the original, and the one to use on
+Windows: it has an installer and releases, this fork has neither.
 
-**What this fork adds:** macOS. The menu bar icon and Dock behaviour, the app
-bundle and its launcher, and the Bluetooth link to a Clawdmeter — none of which
-existed upstream, where there is not a single line of macOS-specific code.
+Upstream has no macOS code at all. This fork adds the menu bar icon, the Dock
+behaviour, the app bundle, and the Bluetooth link to a Clawdmeter.
 
-**Companion repository:** [ryanmaule/Clawdmeter](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy)
-— the device firmware this app is built against. If you own a Clawdmeter you
-need it; see [Clawdmeter](#clawdmeter) for what each firmware understands.
+Own a Clawdmeter? You need our firmware too:
+[ryanmaule/Clawdmeter](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy).
+[Clawdmeter](#clawdmeter) below explains what each version understands.
 
-> ⚠️ **Everything below is upstream's README, edited in places.** It reads like
-> the original because it mostly is. The changes are woven through it — macOS
-> build steps, platform caveats, the firmware requirement — so do not skim it
-> assuming you already know this text.
+The README that follows is juppeee's, with the macOS build steps and caveats
+edited into it. Worth reading even if you know the original.
 
 ---
 

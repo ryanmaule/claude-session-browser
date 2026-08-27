@@ -102,6 +102,9 @@ separate updater.
 
 ## Clawd, your desktop buddy
 
+*The desktop window is Windows only. On macOS the state is still detected, so a
+connected Clawdmeter shows it — there is simply no character on the desktop.*
+
 Clawd is a tiny animated character who sits on your desktop and shows what
 Claude Code is up to — thinking, writing code, waiting for permission, out of
 quota. Fifteen animations, chosen from what is actually happening in your
@@ -188,7 +191,7 @@ See [Credits](#credits) for who built what.
 | Language | Automatic | German on German systems, English everywhere else |
 | Open with | Automatic | Terminal.app (macOS), Windows Terminal, or `cmd` (Windows) |
 | Claude command | `claude` | Path or name of the Claude CLI |
-| Keep running in background | On (Windows) / Off (macOS) | The X button hides the app in the system tray (Windows only) |
+| Keep running in background | On (Windows) / Off (macOS) | The X button hides the app in the tray (Windows) or the menu bar (macOS); on macOS it also leaves the Dock, and a second launch brings it back |
 | Start with Windows | On (Windows) / Off (macOS) | Registry entry under `HKCU\Run` (Windows only) |
 | Notify on limit reset | On | A notification when your quota is back |
 | Warn before the limit is full | On, at 90% | Once per 5-hour window |

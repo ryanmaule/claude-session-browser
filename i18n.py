@@ -426,8 +426,21 @@ TRANSLATIONS = {
         "Ohne Vorwarnung merkst du es erst bei 100 % – dann ist es zum Reagieren zu spät.":
             "With no early warning you only notice at 100%, and by then it is too "
             "late to do anything about it.",
-        "Nur unter Windows: das Tray-Icon würde die App auf dem Mac beim Start abbrechen.":
-            "Windows only — on macOS the tray icon would abort the app on start.",
+        "Auf diesem System gibt es kein Tray-Icon.":
+            "There is no tray icon on this system.",
+        "Nur unter Windows.": "Windows only.",
+        "Zeigen, was Claude tut": "Show what Claude is doing",
+        "Das Gerät zeigt die Animation zum erkannten Zustand — schreibt Claude gerade, denkt er nach, wartet er auf dich. Aus wählt das Gerät selbst eine nach Auslastung.":
+            "The device shows the animation for the detected state — Claude "
+            "writing, thinking, or waiting for you. Off lets the device pick "
+            "one by usage instead.",
+        "Auch klein im Usage-Screen": "Small on the usage screen too",
+        "Sonst nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.":
+            "Otherwise only on the splash screen. Needs firmware that supports it.",
+        "24-Stunden-Uhr": "24-hour clock",
+        "Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.":
+            "The clock on the device's usage screen. Off shows it as 12-hour "
+            "time with AM/PM.",
         "24-Stunden-Anzeige": "24-hour display",
         "Die Uhrzeit, die das Clawdmeter auf dem Usage-Screen anzeigt.":
             "The time the Clawdmeter shows on the Usage screen.",

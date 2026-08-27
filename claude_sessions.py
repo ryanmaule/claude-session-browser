@@ -317,7 +317,7 @@ DEFAULT_SETTINGS = {
     "win_w": 0, "win_h": 0,      # gemerkte Fenstergroesse (0 = noch nicht gesetzt)
     "win_x": None, "win_y": None,  # gemerkte Position
     "win_max": False,            # war das Fenster maximiert?
-    "close_to_tray": True if _IS_WIN else False,  # X = App verstecken (Tray-Icon) statt beenden (Windows only)
+    "close_to_tray": True if _IS_WIN else False,  # X = App verstecken (Tray-Icon) statt beenden (macOS: aus, aber schaltbar)
     "autostart": True if _IS_WIN else False,  # Beim Windows-Start automatisch mitstarten (Windows only)
     "autostart_registered": False,  # Merker: Registry-Eintrag beim ersten Mal setzen (Windows only)
     "notify_limit_reset": True,  # Notification wenn Claude-Limit sich zurueckgesetzt hat
@@ -2011,6 +2011,18 @@ def _shade_hex(hex_color, factor):
         return hex_color
 
 
+# States die "coding" blockieren duerfen (hohe Prioritaet)
+_HIGH_PRIO_STATES = {"done", "tool_pending_approval", "rate_limited",
+                        "auth_required", "api_overloaded", "no_session"}
+# States die als "aktiv arbeitend" gelten
+_WORKING_STATES = {"tool_running", "processing_tool_result",
+                      "responding_text", "thinking", "user_sent_prompt"}
+
+# Anims die sofort schalten duerfen, ohne die uebliche Standzeit abzuwarten.
+_BUDDY_PRIORITY_ANIMS = {"limit", "allow", "expression surprise",
+                         "expression wink"}
+
+
 class BuddyController:
     """Zeigt einen kleinen Clawd-Buddy als frameloses, transparentes,
     always-on-top Tkinter-Fenster. Laeuft in einem Daemon-Thread. Wechselt
@@ -2119,7 +2131,15 @@ class BuddyController:
         Sichtbarkeit, ...). Bei disabled -> stop, bei enabled+aus -> start."""
         s = self.api.settings.get("buddy", {})
         if not s.get("enabled"):
-            self.stop()
+            # Auf dem Mac gibt es kein Buddy-Fenster, das man abschalten
+            # koennte -- die Schleife laeuft dort nur, damit das Clawdmeter
+            # weiss, was Claude tut. Sie hier zu beenden, hat frueher genau
+            # das mitgenommen: Buddy aus, und das Geraet erfand sich seine
+            # Animationen wieder selbst.
+            if not _IS_MAC:
+                self.stop()
+            elif not self.is_alive():
+                self.start()
             return
         if not self.is_alive():
             self.start()
@@ -2219,12 +2239,256 @@ class BuddyController:
         if self.is_alive():
             self._q.put(("place", True))
 
+    def _detect_state(self, state):
+        now = time.time()
+        # mtime-Check: immer schnell (alle 500ms)
+        if now - state["last_mtime_check"] > 0.5:
+            state["last_mtime_check"] = now
+            pdir = ""
+            try:
+                pdir = self.api._projects_dir()
+            except Exception:
+                pdir = ""
+            new_mtime = _latest_session_mtime(pdir)
+            mtime_changed = new_mtime != state["last_known_mtime"]
+            state["last_known_mtime"] = new_mtime
+            state["last_mtime"] = new_mtime
+
+            # Status-Check: sofort bei mtime-Aenderung, sonst max alle 2s
+            should_check = mtime_changed or (now - state["last_status_check"] > 2.0)
+
+            if new_mtime > 0 and should_check:
+                state["last_status_check"] = now
+                try:
+                    status = _latest_jsonl_status(pdir)
+                except Exception:
+                    status = {"internal_state": "no_session", "is_limit": False}
+
+                # Limit mit Hysterese: bleibt aktiv bis reset_at oder 60s
+                new_limited = bool(status.get("is_limit"))
+                new_limit_type = status.get("limit_type")
+                reset_at = float(status.get("reset_at") or 0.0)
+
+                if new_limited:
+                    state["is_limited"] = True
+                    state["limit_type"] = new_limit_type
+                    if reset_at > 0:
+                        state["limited_until"] = reset_at
+                    else:
+                        # Kein reset_at: 60s Hysterese
+                        state["limited_until"] = now + 60
+                    # Reset-Zeit speichern
+                    try:
+                        prev = float(self.api.settings.get("limit_reset_at", 0) or 0)
+                        if reset_at > 0 and abs(prev - reset_at) > 30:
+                            self.api.settings["limit_reset_at"] = reset_at
+                            save_json(SETTINGS_FILE, self.api.settings)
+                            self._schedule_reset_timer(reset_at)
+                    except Exception:
+                        pass
+                elif state["is_limited"]:
+                    # Limit aufheben nur wenn Hysterese abgelaufen
+                    if now > state["limited_until"]:
+                        # Erfolgreiche neue Aktivitaet -> Limit aufheben
+                        int_state = status.get("internal_state", "")
+                        if int_state in _WORKING_STATES or int_state == "done":
+                            try:
+                                self._notify_limit_reset()
+                            except Exception:
+                                pass
+                            state["is_limited"] = False
+                            state["limit_type"] = None
+
+                state["is_waiting"] = bool(status.get("waiting"))
+                state["is_awaiting_approval"] = bool(status.get("awaiting_approval"))
+                state["last_block_type"] = status.get("last_block_type")
+                state["last_tool_name"] = status.get("last_tool_name")
+                state["internal_state"] = status.get("internal_state", "unknown_active")
+
+        if state["last_mtime"] <= 0:
+            return "none"
+
+        age = now - state["last_mtime"]
+        int_state = state.get("internal_state", "unknown_active")
+
+        # HIGH-PRIO States: sofort anzeigen
+        if state["is_limited"] and age < 3600:
+            return "limit"
+        if state["is_awaiting_approval"] and age < 300:
+            return "awaiting_approval"
+        if int_state == "done" and age < 180:
+            return "waiting"
+
+        # Arbeitszustaende. Frueher galt hier: einmal "active", und die
+        # naechsten FUENF MINUTEN blieb es dabei, egal was Claude
+        # tatsaechlich tat. Das sollte Flackern verhindern, war als Mittel
+        # aber viel zu grob - Clawd stand minutenlang auf "arbeitet",
+        # waehrend Claude laengst nachdachte oder Text schrieb. Genau
+        # deshalb passten die Animationen so oft nicht.
+        #
+        # Jetzt folgt der Zustand dem Geschehen; gegen Flackern reicht die
+        # kurze Standzeit (_STATE_DEBOUNCE_S), die weiter unten beim
+        # Anim-Wechsel greift.
+        if int_state in _WORKING_STATES and age < 300:
+            if state["stable_state"] != int_state:
+                state["stable_state"] = int_state
+                state["stable_since"] = now
+            if int_state in ("thinking", "user_sent_prompt"):
+                return "thinking"
+            if int_state == "tool_pending_approval":
+                return "awaiting_approval"
+            return "active"
+
+        # Nicht mehr aktiv arbeitend - stable state zuruecksetzen
+        if int_state not in _WORKING_STATES:
+            state["stable_state"] = None
+            state["stable_since"] = 0.0
+
+        # DONE vs IDLE: done nur bei end_turn, idle durch Zeit
+        if state["is_waiting"] and age < 180:
+            return "waiting"
+        if age < 300:
+            return "recent"
+        if age < 900:
+            return "idle"
+        return "sleep"
+
+    # ---- Anim wechseln ----
+    def _choose_anim(self, state):
+        bud = self.api.settings.get("buddy", {})
+        now = time.time()
+        # Preview-Test aus dem Buddy-Tab hat hoechste Prioritaet
+        if now < state["preview_until"] and state["preview_anim"] in BUDDY_ANIMS:
+            return state["preview_anim"]
+        # Surprise-Pulse (z.B. Reset-Karte oder Test-Button)
+        if now < state["surprise_until"]:
+            return BUDDY_STATE_MAP["surprise"]
+        # Wink-Easter-Egg: ein Mal pro Hover-Session zwinkern nach 10s
+        # Dwell. Weiter zwinkern erst nach neuem Mouse-Leave/Enter.
+        if state.get("hover") and state["hover_started_at"] > 0 \
+                and not state.get("wink_fired_this_hover"):
+            dwell = now - state["hover_started_at"]
+            if dwell > 10:
+                state["wink_fired_this_hover"] = True
+                state["wink_until"] = now + 2.5
+        if now < state["wink_until"]:
+            return BUDDY_STATE_MAP["wink"]
+        # Party-Modus mit waehlbarem Stil (bounce oder sway)
+        if bud.get("party"):
+            style = str(bud.get("party_style", "bounce")).lower()
+            if style == "sway":
+                return BUDDY_STATE_MAP["party_sway"]
+            return BUDDY_STATE_MAP["party"]
+        act = self._detect_state(state)
+        state["activity_state"] = act
+        # Ein State = eine Anim, so lang der State anhaelt. Kein Rotieren
+        # zwischen "work coding" und "write" alle 30s mehr - der User hat
+        # zu Recht gesagt: wenn Claude 10 Min codet soll auch 10 Min
+        # "work coding" laufen. Weniger Bewegung im Augenwinkel.
+        # ("write" und "think" sind weiter ueber die Preview-Kachel im
+        # Buddy-Tab antestbar, nur nicht mehr in der Auto-Rotation.)
+        return BUDDY_STATE_MAP.get(act, "idle breathe")
+
+    def _init_activity_state(self, state):
+        """Die Schluessel, die Zustandserkennung und Anim-Wahl brauchen.
+
+        Bewusst getrennt von dem, was die Tk-Schleife zusaetzlich fuehrt
+        (Fenstergroesse, Deckkraft, Drag-Zustand): die Erkennung liest nur
+        Dateien und kommt ohne Oberflaeche aus."""
+        state.update({
+            "anim": "idle breathe",
+            "activity_state": "idle",
+            "last_mtime_check": 0.0,
+            "last_mtime": 0.0,
+            "last_known_mtime": 0.0,
+            "last_status_check": 0.0,
+            "is_limited": False,
+            "limit_type": None,
+            "limited_until": 0.0,
+            "is_waiting": False,
+            "is_awaiting_approval": False,
+            "last_block_type": None,
+            "last_tool_name": None,
+            "internal_state": "no_session",
+            "stable_state": None,
+            "stable_since": 0.0,
+            "surprise_until": 0.0,
+            "preview_until": 0.0,
+            "preview_anim": "",
+            "hover": False,
+            "hover_started_at": 0.0,
+            "wink_until": 0.0,
+            "wink_fired_this_hover": False,
+            "pending_anim": None,
+            "pending_since": 0.0,
+        })
+
+    def _run_headless(self):
+        """Zustandsmaschine ohne Anzeige.
+
+        Auf dem Mac kann der Buddy nicht gezeichnet werden -- Tk will fuer
+        sein Fenster den Hauptthread, und der gehoert pywebview. Die Erkennung
+        selbst braucht aber gar keine Oberflaeche: sie liest die Sitzungs-
+        dateien. Ohne diese Schleife stuende `current_anim()` fuer immer auf
+        "" -- und das Clawdmeter suchte sich seine Animation nach der
+        Auslastung aus, statt zu zeigen, was Claude gerade tut."""
+        state = {}
+        self._init_activity_state(state)
+        while self._alive:
+            try:
+                while True:                     # Kommandos verwerfen, aber
+                    try:                        # auf "quit" hoeren
+                        cmd, _arg = self._q.get_nowait()
+                    except Exception:
+                        break
+                    if cmd == "quit":
+                        self._alive = False
+                        break
+                if not self._alive:
+                    break
+
+                chosen = self._choose_anim(state)
+                now = time.time()
+                # Dieselbe Entprellung wie in der Tk-Schleife: eine neue Anim
+                # muss kurz stabil gewuenscht sein, sonst zappelt die Anzeige
+                # auf dem Geraet bei jedem Zwischenzustand.
+                if chosen != state["anim"]:
+                    if chosen in _BUDDY_PRIORITY_ANIMS:
+                        state["anim"] = chosen
+                        state["pending_anim"] = None
+                    elif state.get("pending_anim") != chosen:
+                        state["pending_anim"] = chosen
+                        state["pending_since"] = now
+                    elif now - state["pending_since"] >= self._STATE_DEBOUNCE_S:
+                        state["anim"] = chosen
+                        state["pending_anim"] = None
+                elif state.get("pending_anim") is not None:
+                    state["pending_anim"] = None
+
+                self._pub_anim = state["anim"]
+                self._pub_limit = (bool(state.get("is_limited")),
+                                   float(state.get("limited_until") or 0.0))
+            except Exception:
+                pass
+            time.sleep(0.3)
+        self._alive = False
+
     # ---- interner Thread ----
     def _run(self):
+        # macOS: Tk baut sein Fenster ueber [NSWindow init...] auf, und AppKit
+        # besteht auf dem Hauptthread. Der gehoert hier pywebview, also stirbt
+        # Tk in diesem Thread (TkMacOSXMakeRealWindowExist -> abort). Es gibt
+        # also keinen Desktop-Buddy auf dem Mac -- die Zustandsmaschine laeuft
+        # trotzdem, damit das Clawdmeter etwas zu spiegeln hat.
+        if _IS_MAC:
+            self._run_headless()
+            return
         try:
             import tkinter as tk
         except Exception:
-            self._alive = False
+            # Ohne Tk kein Buddy-Fenster. Der Zustand laesst sich aber auch
+            # ohne Oberflaeche ermitteln, und das Geraet spiegelt ihn dann.
+            self._run_headless()
             return
 
         s = dict(self.api.settings.get("buddy", {}))
@@ -2685,162 +2949,11 @@ class BuddyController:
         state["last_alt_swap"] = 0.0
         state["use_alt"] = False
 
-        # States die "coding" blockieren duerfen (hohe Prioritaet)
-        _HIGH_PRIO_STATES = {"done", "tool_pending_approval", "rate_limited",
-                            "auth_required", "api_overloaded", "no_session"}
-        # States die als "aktiv arbeitend" gelten
-        _WORKING_STATES = {"tool_running", "processing_tool_result",
-                          "responding_text", "thinking", "user_sent_prompt"}
-
         def detect_state():
-            now = time.time()
-            # mtime-Check: immer schnell (alle 500ms)
-            if now - state["last_mtime_check"] > 0.5:
-                state["last_mtime_check"] = now
-                pdir = ""
-                try:
-                    pdir = self.api._projects_dir()
-                except Exception:
-                    pdir = ""
-                new_mtime = _latest_session_mtime(pdir)
-                mtime_changed = new_mtime != state["last_known_mtime"]
-                state["last_known_mtime"] = new_mtime
-                state["last_mtime"] = new_mtime
+            return self._detect_state(state)
 
-                # Status-Check: sofort bei mtime-Aenderung, sonst max alle 2s
-                should_check = mtime_changed or (now - state["last_status_check"] > 2.0)
-
-                if new_mtime > 0 and should_check:
-                    state["last_status_check"] = now
-                    try:
-                        status = _latest_jsonl_status(pdir)
-                    except Exception:
-                        status = {"internal_state": "no_session", "is_limit": False}
-
-                    # Limit mit Hysterese: bleibt aktiv bis reset_at oder 60s
-                    new_limited = bool(status.get("is_limit"))
-                    new_limit_type = status.get("limit_type")
-                    reset_at = float(status.get("reset_at") or 0.0)
-
-                    if new_limited:
-                        state["is_limited"] = True
-                        state["limit_type"] = new_limit_type
-                        if reset_at > 0:
-                            state["limited_until"] = reset_at
-                        else:
-                            # Kein reset_at: 60s Hysterese
-                            state["limited_until"] = now + 60
-                        # Reset-Zeit speichern
-                        try:
-                            prev = float(self.api.settings.get("limit_reset_at", 0) or 0)
-                            if reset_at > 0 and abs(prev - reset_at) > 30:
-                                self.api.settings["limit_reset_at"] = reset_at
-                                save_json(SETTINGS_FILE, self.api.settings)
-                                self._schedule_reset_timer(reset_at)
-                        except Exception:
-                            pass
-                    elif state["is_limited"]:
-                        # Limit aufheben nur wenn Hysterese abgelaufen
-                        if now > state["limited_until"]:
-                            # Erfolgreiche neue Aktivitaet -> Limit aufheben
-                            int_state = status.get("internal_state", "")
-                            if int_state in _WORKING_STATES or int_state == "done":
-                                try:
-                                    self._notify_limit_reset()
-                                except Exception:
-                                    pass
-                                state["is_limited"] = False
-                                state["limit_type"] = None
-
-                    state["is_waiting"] = bool(status.get("waiting"))
-                    state["is_awaiting_approval"] = bool(status.get("awaiting_approval"))
-                    state["last_block_type"] = status.get("last_block_type")
-                    state["last_tool_name"] = status.get("last_tool_name")
-                    state["internal_state"] = status.get("internal_state", "unknown_active")
-
-            if state["last_mtime"] <= 0:
-                return "none"
-
-            age = now - state["last_mtime"]
-            int_state = state.get("internal_state", "unknown_active")
-
-            # HIGH-PRIO States: sofort anzeigen
-            if state["is_limited"] and age < 3600:
-                return "limit"
-            if state["is_awaiting_approval"] and age < 300:
-                return "awaiting_approval"
-            if int_state == "done" and age < 180:
-                return "waiting"
-
-            # Arbeitszustaende. Frueher galt hier: einmal "active", und die
-            # naechsten FUENF MINUTEN blieb es dabei, egal was Claude
-            # tatsaechlich tat. Das sollte Flackern verhindern, war als Mittel
-            # aber viel zu grob - Clawd stand minutenlang auf "arbeitet",
-            # waehrend Claude laengst nachdachte oder Text schrieb. Genau
-            # deshalb passten die Animationen so oft nicht.
-            #
-            # Jetzt folgt der Zustand dem Geschehen; gegen Flackern reicht die
-            # kurze Standzeit (_STATE_DEBOUNCE_S), die weiter unten beim
-            # Anim-Wechsel greift.
-            if int_state in _WORKING_STATES and age < 300:
-                if state["stable_state"] != int_state:
-                    state["stable_state"] = int_state
-                    state["stable_since"] = now
-                if int_state in ("thinking", "user_sent_prompt"):
-                    return "thinking"
-                if int_state == "tool_pending_approval":
-                    return "awaiting_approval"
-                return "active"
-
-            # Nicht mehr aktiv arbeitend - stable state zuruecksetzen
-            if int_state not in _WORKING_STATES:
-                state["stable_state"] = None
-                state["stable_since"] = 0.0
-
-            # DONE vs IDLE: done nur bei end_turn, idle durch Zeit
-            if state["is_waiting"] and age < 180:
-                return "waiting"
-            if age < 300:
-                return "recent"
-            if age < 900:
-                return "idle"
-            return "sleep"
-
-        # ---- Anim wechseln ----
         def choose_anim():
-            bud = self.api.settings.get("buddy", {})
-            now = time.time()
-            # Preview-Test aus dem Buddy-Tab hat hoechste Prioritaet
-            if now < state["preview_until"] and state["preview_anim"] in BUDDY_ANIMS:
-                return state["preview_anim"]
-            # Surprise-Pulse (z.B. Reset-Karte oder Test-Button)
-            if now < state["surprise_until"]:
-                return BUDDY_STATE_MAP["surprise"]
-            # Wink-Easter-Egg: ein Mal pro Hover-Session zwinkern nach 10s
-            # Dwell. Weiter zwinkern erst nach neuem Mouse-Leave/Enter.
-            if state.get("hover") and state["hover_started_at"] > 0 \
-                    and not state.get("wink_fired_this_hover"):
-                dwell = now - state["hover_started_at"]
-                if dwell > 10:
-                    state["wink_fired_this_hover"] = True
-                    state["wink_until"] = now + 2.5
-            if now < state["wink_until"]:
-                return BUDDY_STATE_MAP["wink"]
-            # Party-Modus mit waehlbarem Stil (bounce oder sway)
-            if bud.get("party"):
-                style = str(bud.get("party_style", "bounce")).lower()
-                if style == "sway":
-                    return BUDDY_STATE_MAP["party_sway"]
-                return BUDDY_STATE_MAP["party"]
-            act = detect_state()
-            state["activity_state"] = act
-            # Ein State = eine Anim, so lang der State anhaelt. Kein Rotieren
-            # zwischen "work coding" und "write" alle 30s mehr - der User hat
-            # zu Recht gesagt: wenn Claude 10 Min codet soll auch 10 Min
-            # "work coding" laufen. Weniger Bewegung im Augenwinkel.
-            # ("write" und "think" sind weiter ueber die Preview-Kachel im
-            # Buddy-Tab antestbar, nur nicht mehr in der Auto-Rotation.)
-            return BUDDY_STATE_MAP.get(act, "idle breathe")
+            return self._choose_anim(state)
 
         # ---- Rendering (mit Frame-Cache) ----
         render_cache = {}
@@ -3332,6 +3445,127 @@ class LimitResetToast:
 # --------------------------------------------------------------------------- #
 #  System-Tray (X = App in Hintergrund)
 # --------------------------------------------------------------------------- #
+_APP_DELEGATE = None
+
+
+def _mac_dock_icon(on):
+    """Dock-Symbol an- oder abschalten. Accessory (1) nimmt die App aus dem
+    Dock und aus der Menueleiste heraus -- sie lebt dann nur noch im
+    Statusitem weiter, genau das ist der Sinn von "in den Hintergrund".
+    Regular (0) holt sie zurueck."""
+    if not _IS_MAC:
+        return
+    try:
+        import AppKit
+        from PyObjCTools import AppHelper
+    except Exception:
+        return
+    app = AppKit.NSApplication.sharedApplication()
+
+    def _apply():
+        try:
+            app.setActivationPolicy_(0 if on else 1)
+            if on:
+                app.activateIgnoringOtherApps_(True)
+        except Exception:
+            pass
+
+    AppHelper.callAfter(_apply)
+
+
+def _install_mac_app_delegate(reveal, quit_now):
+    """Cmd+Q, "Beenden" im Dock-Menue und der Klick aufs Dock-Symbol laufen
+    alle ueber den NSApplication-Delegaten. pywebviews eigener beantwortet
+    jeden Beenden-Wunsch mit dem closing-Event des Fensters -- und weil das
+    hier "verstecken statt schliessen" heisst, sagt er dem System jedes Mal
+    NEIN. Ergebnis: die App laesst sich ueberhaupt nicht mehr beenden, nur
+    noch per Force Quit. Also ein eigener Delegat."""
+    global _APP_DELEGATE
+    if not _IS_MAC or _APP_DELEGATE is not None:
+        return
+    try:
+        import AppKit
+        import Foundation
+    except Exception:
+        return
+
+    class CSBAppDelegate(AppKit.NSObject):
+        def applicationShouldTerminate_(self, app):
+            # NEIN heisst hier nicht "bleib da": das Schliessen der Fenster
+            # beendet die App auf dem normalen Weg (inklusive Aufraeumen).
+            # Genau der Weg, den "Beenden" im Statusmenue nimmt.
+            quit_now()
+            return Foundation.NO
+
+        def applicationShouldHandleReopen_hasVisibleWindows_(self, app, flag):
+            reveal()
+            return Foundation.YES
+
+        def applicationSupportsSecureRestorableState_(self, app):
+            return Foundation.YES
+
+    try:
+        _APP_DELEGATE = CSBAppDelegate.alloc().init()
+        AppKit.NSApplication.sharedApplication().setDelegate_(_APP_DELEGATE)
+    except Exception:
+        _APP_DELEGATE = None
+
+
+def _install_mac_reveal_signal(reveal):
+    """Ein zweiter Programmstart soll die versteckte App zurueckholen. Als
+    Accessory-App hat sie weder Dock-Symbol noch Fenster, also kann der
+    Starter sie nicht ueber AppleScript nach vorn holen -- er schickt
+    stattdessen SIGUSR1. Ohne diesen Weg gaebe es, wenn das Statusitem mal
+    fehlt, ueberhaupt keine Moeglichkeit mehr an die App heranzukommen: kein
+    Fenster, kein Dock, kein Menue. Nur noch Force Quit.
+
+    Der Handler muss ueber PyObjCTools laufen. Ein gewoehnlicher
+    Python-Handler kaeme erst dran, wenn die Cocoa-Runloop zwischendurch
+    Python-Code ausfuehrt, und darauf ist kein Verlass."""
+    if not _IS_MAC:
+        return
+    try:
+        import signal as _sig
+        import PyObjCTools.MachSignals as _machsig
+    except Exception:
+        return
+
+    def _handler(*_args):
+        try:
+            reveal()
+        except Exception:
+            pass
+
+    try:
+        _machsig.signal(_sig.SIGUSR1, _handler)
+    except Exception:
+        pass
+
+
+def _mac_template_icon(icon):
+    """Das Statusitem wie ein Systemsymbol zeichnen. Als Template-Bild nimmt
+    macOS nur die Silhouette (den Alphakanal) und faerbt sie selbst -- schwarz
+    in der hellen Menueleiste, weiss in der dunklen. Ohne das leuchtet der
+    orange Clawd zwischen WLAN und Batterie als einziger bunt."""
+    try:
+        img = icon._status_item.button().image()
+        if img is not None:
+            img.setTemplate_(True)
+    except Exception:
+        pass
+
+
+def _tray_log(icon):
+    """Eine Zeile ins Log, wenn das Statusitem steht. Bewusst ohne Angabe zur
+    Geometrie: das Fenster des Items meldet auch dann Hoehe 0, wenn das Symbol
+    laengst in der Leiste sitzt -- danach zu urteilen fuehrt in die Irre."""
+    try:
+        app_log("tray: Statusitem aktiv (Bild=%s)"
+                % (icon._status_item.button().image() is not None,))
+    except Exception:
+        pass
+
+
 class TrayManager:
     """System-Tray-Icon damit die App im Hintergrund weiterlaeuft wenn der
     User auf X klickt. Rechtsklick → Menue mit Oeffnen/Beenden. Linksklick
@@ -3346,6 +3580,17 @@ class TrayManager:
     def start(self):
         if self.icon:
             return
+        # macOS: alles was AppKit anfasst -- das Statusitem anlegen, das Menue
+        # setzen, das Icon sichtbar machen -- gehoert auf den Hauptthread. Von
+        # hier aus ist das nicht garantiert, also ueber die Cocoa-Runloop
+        # nachreichen; pywebview macht es intern genauso.
+        if _IS_MAC and threading.current_thread() is not threading.main_thread():
+            try:
+                from PyObjCTools import AppHelper
+            except Exception:
+                return
+            AppHelper.callAfter(self.start)
+            return
         try:
             import pystray
             from PIL import Image
@@ -3355,7 +3600,8 @@ class TrayManager:
         icon_img = None
         # Reihenfolge: bevorzugt .ico (App-Icon, immer im Build), dann logo.png,
         # dann farbiges Fallback-Quadrat.
-        for candidate in ("claude_sessions.ico", "logo.png"):
+        for candidate in ("claude_sessions.ico", "logo.png",
+                          os.path.join("docs", "logo.png")):
             try:
                 icon_img = Image.open(_resource(candidate))
                 break
@@ -3371,10 +3617,14 @@ class TrayManager:
             self.show_main()
 
         def _quit(icon, item):
-            try:
-                self.icon.stop()
-            except Exception:
-                pass
+            # macOS: icon.stop() ruft [NSApp stop:] -- das ist pywebviews
+            # eigene Runloop. Hier nur die Fenster schliessen lassen, das
+            # Aufraeumen erledigt main() im finally.
+            if not _IS_MAC:
+                try:
+                    self.icon.stop()
+                except Exception:
+                    pass
             try:
                 self.on_quit()
             except Exception:
@@ -3393,9 +3643,69 @@ class TrayManager:
             title="Claude Session Browser",
             menu=menu,
         )
+        if _IS_MAC:
+            # pywebview besitzt die NSApplication und deren Runloop bereits.
+            # run_detached() haengt sich dort ein, statt ein zweites
+            # [NSApplication run] zu starten -- genau das brach von einem
+            # Nebenthread aus mit SIGTRAP (Exit 133) ab und riss die ganze
+            # App mit, ohne Traceback.
+            try:
+                self.icon.run_detached(setup=self._setup_detached)
+            except Exception:
+                self.icon = None
+            return
         self._thread = threading.Thread(target=self._run, daemon=True,
                                         name="TrayThread")
         self._thread.start()
+
+    def _setup_detached(self, icon):
+        # pystray ruft das aus einem eigenen Thread. `visible = True` faehrt
+        # nach AppKit durch (NSImage, setImage_, setHidden_), also wieder auf
+        # den Hauptthread zurueckreichen.
+        try:
+            from PyObjCTools import AppHelper
+        except Exception:
+            return
+
+        def _show():
+            try:
+                icon.visible = True
+            except Exception:
+                pass
+            _mac_template_icon(icon)
+
+        AppHelper.callAfter(_show)
+
+        def _register():
+            # Ein Statusitem, das waehrend des Programmstarts entsteht, wird
+            # von der Menueleiste zwar entgegengenommen, bekommt aber keinen
+            # Platz zugewiesen: es meldet sich als sichtbar, hat ein Bild --
+            # und ist trotzdem nirgends. Ein Aus/An meldet es neu an, sobald
+            # der Start durch ist, und dann bekommt es seinen Platz.
+            # (Beim Start aus dem Terminal faellt das nicht auf, dort loest
+            # schon der Wechsel in den Vordergrund die Anmeldung aus -- die
+            # App aus dem Finder zu starten ist der Fall, der es braucht.)
+            try:
+                it = icon._status_item
+                it.setVisible_(False)
+                it.setVisible_(True)
+            except Exception:
+                pass
+            _mac_template_icon(icon)
+            _tray_log(icon)
+
+        def _delayed():
+            # Beendet sich die App innerhalb dieser zwei Sekunden, laeuft der
+            # Aufruf ins Leere. Ungefangen stuende hier ein Fehler in einem
+            # Daemon-Thread, den nie jemand sieht.
+            try:
+                time.sleep(2)
+                AppHelper.callAfter(_register)
+            except Exception:
+                pass
+
+        threading.Thread(target=_delayed, daemon=True,
+                         name="TrayRegister").start()
 
     def _run(self):
         try:
@@ -3407,6 +3717,9 @@ class TrayManager:
         win = self.get_window()
         if not win:
             return
+        # Erst zurueck ins Dock, dann zeigen: als Accessory-App darf das
+        # Fenster nicht nach vorn geholt werden.
+        _mac_dock_icon(True)
         try:
             win.show()
         except Exception:
@@ -3427,11 +3740,36 @@ class TrayManager:
             pass
 
     def stop(self):
-        if self.icon:
+        icon = self.icon
+        if not icon:
+            return
+        if _IS_MAC:
+            # pystrays _stop() ruft [NSApp stop:] auf -- das ist pywebviews
+            # eigene Runloop, damit waere die ganze App weg. Im detached
+            # Betrieb reicht es, das Statusitem aus der Leiste zu nehmen
+            # (genau das macht pystray sonst am Ende von _run).
+            self.icon = None
             try:
-                self.icon.stop()
+                from PyObjCTools import AppHelper
             except Exception:
-                pass
+                return
+
+            def _remove():
+                try:
+                    icon.visible = False
+                except Exception:
+                    pass
+                try:
+                    icon._status_bar.removeStatusItem_(icon._status_item)
+                except Exception:
+                    pass
+
+            AppHelper.callAfter(_remove)
+            return
+        try:
+            icon.stop()
+        except Exception:
+            pass
 
 
 # --------------------------------------------------------------------------- #
@@ -3648,9 +3986,10 @@ class Api:
             "home": HOME,
             "version": VERSION,
             "onboarding_version": ONBOARDING_VERSION,
-            # Die Seite muss wissen, wo sie laeuft: der Tray-Schalter darf nur
-            # unter Windows anfassbar sein.
+            # Die Seite muss wissen, wo sie laeuft: den Tray-Schalter gibt
+            # es unter Windows und macOS, unter Linux nicht.
             "is_win": _IS_WIN,
+            "has_tray": _IS_WIN or _IS_MAC,
         }
 
     # -- von JS aufgerufen --
@@ -3783,8 +4122,8 @@ class Api:
         if key == "enabled":
             if value:
                 self.buddy.start()
-            else:
-                self.buddy.stop()
+            elif not _IS_MAC:
+                self.buddy.stop()      # siehe push(): auf dem Mac weiterlaufen
         else:
             self.buddy.push(key)
         return self.buddy_state()
@@ -4109,8 +4448,8 @@ class Api:
         tray = getattr(self, "_tray", None)
         if not tray:
             return {"ok": False}
-        if not _IS_WIN:
-            return {"ok": False}   # siehe oben: startet den Prozess ab
+        if not (_IS_WIN or _IS_MAC):
+            return {"ok": False}
         try:
             if on:
                 tray.start()
@@ -6030,7 +6369,6 @@ async function renderBuddy(){
   const previewSrc = data.preview || '';
   // Die Uhr-Einstellung liegt nicht im Buddy-Block, sondern bei den
   // App-Einstellungen -- also von dort lesen, wie renderSettings() es tut.
-  const clock24 = ((STATE && STATE.settings) || {}).clock_24h !== false;
   // Kopf-Vorschau (Miniatur im Titel)
   // Ueberschrift bekommt die freigestellte Fassung, nicht den vollen
   // 20x20-Rahmen - sonst sitzt ein kleiner Klecks in einem schwarzen Quadrat.
@@ -6066,10 +6404,11 @@ async function renderBuddy(){
         <div>
           <h2>${ic('buddy')}Dein kleiner Buddy auf dem Desktop</h2>
           <div class="sub">Ein winziger animierter Clawd (20×20 Pixel) schwebt auf dem Desktop – frameless, immer im Vordergrund. Zieh ihn mit der Maus wohin du magst. Rechts- oder Doppelklick schickt ihn kurz weg – er kommt beim nächsten neuen Claude-Terminal von selbst zurück.</div>
+          ${STATE.is_win ? '' : `<div class="warnnote">${ic('warn')}<span>Nur unter Windows.</span></div>`}
         </div>
         <div class="ba-toggle">
-          <div class="toggle ${b.enabled?'on':''}" onclick="buddyToggle()"></div>
-          <div class="ba-toggle-lbl">${b.enabled?'An':'Aus'}</div>
+          <div class="toggle ${b.enabled&&STATE.is_win?'on':''} ${STATE.is_win?'':'disabled'}" ${STATE.is_win?`onclick="buddyToggle()"`:''}></div>
+          <div class="ba-toggle-lbl">${STATE.is_win?(b.enabled?'An':'Aus'):'Aus'}</div>
         </div>
       </div>
     </div>
@@ -6094,11 +6433,6 @@ async function renderBuddy(){
         <button class="btn" onclick="buddyPickWindow()">Aus offenen Fenstern wählen…</button>
       </div>
       <div class="ba-hint">Passt zu jedem Fenster, dessen Titel den eingegebenen Text enthält (Groß-/Kleinschreibung egal).</div>
-      <div class="ba-party ba-split">
-        <span>Animation im Usage-Screen zeigen</span>
-        <div class="toggle ${b.usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
-      </div>
-      <div class="ba-hint">Das Gerät zeigt den Buddy dann auch klein auf dem Usage-Screen neben den Prozentwerten, statt nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.</div>
     </div>
 
     <div class="card">
@@ -6170,15 +6504,6 @@ async function renderBuddy(){
       </div>
     </div>
 
-    <div class="card">
-      <h2>${ic('clock')}Uhr</h2>
-      <div class="sub">Die Uhrzeit, die das Clawdmeter auf dem Usage-Screen anzeigt.</div>
-      <div class="ba-party">
-        <span>24-Stunden-Anzeige</span>
-        <div class="toggle ${clock24?'on':''}" onclick="toggleClock24(this)"></div>
-      </div>
-      <div class="ba-hint">Aus zeigt die Uhr als 12-Stunden-Zeit mit AM/PM.</div>
-    </div>
     </div>
   `;
   translateDom(document.getElementById('buddy-panel'));
@@ -6222,8 +6547,12 @@ async function buddySet(key, value){
 }
 async function buddySetToggle(key){
   const b=(BUDDY&&BUDDY.config)||{};
-  await api.buddy_set(key, !b[key]);
-  renderBuddy();
+  ingest(await api.buddy_set(key, !b[key]));
+  // Zwei Aufrufer: die Buddy-Seite und die Geraete-Karte in den
+  // Einstellungen. Neu gezeichnet wird die, die gerade zu sehen ist.
+  const bv = document.getElementById('view-buddy');
+  if(bv && bv.classList.contains('active')) renderBuddy();
+  else renderSettings();
 }
 function buddyLive(key, value){
   const v = document.getElementById(key==='size'?'ba-size-val':'ba-op-val');
@@ -6372,8 +6701,8 @@ function renderSettings(){
         <div><div class="lbl">Im Hintergrund weiterlaufen</div>
           <div class="desc">Wenn aktiv, versteckt der X-Button die App nur (Icon im System-Tray unten rechts, Klick öffnet sie wieder).</div>
           ${st.close_to_tray===false ? `<div class="warnnote">${ic('warn')}<span>Das X beendet die App jetzt wirklich – Buddy, Clawdmeter und Benachrichtigungen laufen dann nicht mehr.</span></div>` : ''}
-          ${STATE.is_win ? '' : `<div class="warnnote">${ic('warn')}<span>Nur unter Windows: das Tray-Icon würde die App auf dem Mac beim Start abbrechen.</span></div>`}</div>
-        <div class="toggle ${st.close_to_tray!==false?'on':''} ${STATE.is_win?'':'disabled'}" ${STATE.is_win?`onclick="toggleTray(this)"`:''}></div>
+          ${STATE.has_tray ? '' : `<div class="warnnote">${ic('warn')}<span>Auf diesem System gibt es kein Tray-Icon.</span></div>`}</div>
+        <div class="toggle ${st.close_to_tray!==false?'on':''} ${STATE.has_tray?'':'disabled'}" ${STATE.has_tray?`onclick="toggleTray(this)"`:''}></div>
       </div>
       <button class="btn danger" onclick="reallyQuit()" style="margin-top:12px">App jetzt komplett beenden</button>
     </div>
@@ -6447,8 +6776,18 @@ function renderSettings(){
         </select>
       </div>
       <div class="row2">
-        <div><div class="lbl">Clawd-Buddy spiegeln</div><div class="desc">Das Gerät zeigt dieselbe Animation wie dein Clawd-Buddy auf dem Desktop — statt selbst eine nach Auslastung zu wählen. Braucht einen eingeschalteten Buddy.</div></div>
+        <div><div class="lbl">Zeigen, was Claude tut</div><div class="desc">Das Gerät zeigt die Animation zum erkannten Zustand — schreibt Claude gerade, denkt er nach, wartet er auf dich. Aus wählt das Gerät selbst eine nach Auslastung.</div></div>
         <div class="toggle ${st.clawdmeter_buddy!==false?'on':''}" onclick="toggleClawdBuddy(this)"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">Auch klein im Usage-Screen</div>
+          <div class="desc">Sonst nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.</div></div>
+        <div class="toggle ${(st.buddy||{}).usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
+      </div>
+      <div class="row2">
+        <div><div class="lbl">24-Stunden-Uhr</div>
+          <div class="desc">Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.</div></div>
+        <div class="toggle ${st.clock_24h!==false?'on':''}" onclick="toggleClock24(this)"></div>
       </div>
       <div class="row2">
         <div><div class="lbl">Warnen wenn der Akku zur Neige geht</div>
@@ -6713,7 +7052,6 @@ setInterval(()=>{ if(document.getElementById('clawd-status')) refreshClawd(); },
 async function toggleClock24(el){
   const on=!el.classList.contains('on'); el.classList.toggle('on',on);
   ingest(await api.update_setting('clock_24h', on));
-  renderBuddy();   // der Schalter sitzt im Buddy-Tab
 }
 async function toggleTray(el){
   const on=!el.classList.contains('on'); el.classList.toggle('on',on);
@@ -7289,6 +7627,15 @@ def _acquire_single_instance():
             except OSError:
                 lf.close()
                 return False, None     # schon eine Instanz da
+            # PID hineinschreiben: ein zweiter Start braucht sie, um der
+            # laufenden Instanz "zeig dich" zu schicken. Auf dem Mac ist das
+            # der einzige Weg zu einer versteckten App -- ohne Fenster und
+            # ohne Dock-Symbol findet AppleScript nichts zum Aktivieren.
+            try:
+                lf.write(str(os.getpid()))
+                lf.flush()
+            except Exception:
+                pass
             _SINGLE_INSTANCE_LOCKFILE = lf
             return True, None
         except Exception:
@@ -7424,6 +7771,20 @@ def _restore_existing_window():
     (auch aus dem Tray heraus falls verstecked). Return True wenn was gefunden
     und aktiviert wurde."""
     if _IS_MAC:
+        # Zuerst SIGUSR1 an die laufende Instanz: versteckt sie sich im
+        # Menueleisten-Icon, hat sie weder Fenster noch Dock-Symbol, und dann
+        # gibt es fuer System Events nichts zu aktivieren. Die PID steht in
+        # der Lock-Datei des Single-Instance-Guards.
+        try:
+            import signal as _sig
+            with open(os.path.join(HOME, ".claude",
+                                   ".session_browser.lock")) as _lf:
+                _pid = int((_lf.read() or "0").strip() or 0)
+            if _pid > 0 and _pid != os.getpid():
+                os.kill(_pid, _sig.SIGUSR1)
+                return True
+        except Exception:
+            pass
         # Ueber System Events und den Prozessnamen, nicht ueber
         # `tell application ... to activate`: das startet eine App, die nicht
         # laeuft -- und wenn der Aufrufer selbst diese App ist, wartet sie auf
@@ -7570,8 +7931,10 @@ def main():
         elif not want_autostart and already:
             set_autostart(False)
 
-    # Buddy automatisch anwerfen, wenn er zuletzt an war.
-    if s.get("buddy", {}).get("enabled"):
+    # Buddy automatisch anwerfen, wenn er zuletzt an war. Auf dem Mac immer:
+    # dort ist die Schleife kein Fenster, sondern die Zustandsquelle fuers
+    # Clawdmeter -- und die haengt nicht am Buddy-Schalter.
+    if _IS_MAC or s.get("buddy", {}).get("enabled"):
         try:
             api.buddy.start()
         except Exception:
@@ -7624,7 +7987,8 @@ def main():
     # und das muss im Hauptthread laufen -- von einem Nebenthread aus bricht
     # AppKit mit SIGTRAP ab. Kein Traceback, kein Fenster, die App ist einfach
     # weg. Der Schalter steht per Vorgabe auf aus, liess sich aber einschalten.
-    if _IS_WIN and s.get("close_to_tray", True):
+    tray_wanted = bool(s.get("close_to_tray", _IS_WIN))
+    if _IS_WIN and tray_wanted:
         tray.start()
     app_log(f"start: clawdmeter={bool(s.get('clawdmeter'))} "
             f"buddy={bool(s.get('buddy', {}).get('enabled'))} "
@@ -7642,6 +8006,9 @@ def main():
                 win.hide()
             except Exception:
                 pass
+            # Aus dem Dock verschwinden -- sonst bleibt ein Symbol zurueck,
+            # das nichts mehr oeffnet.
+            _mac_dock_icon(False)
             return False
         return True
 
@@ -7654,8 +8021,35 @@ def main():
     api._real_quit = real_quit
     api._tray = tray
 
+    def _gui_ready():
+        # macOS: das Statusitem darf erst dazu, wenn pywebviews
+        # NSApplication laeuft -- vorher gibt es keine Runloop, die den
+        # Aufruf auf den Hauptthread zurueckreicht.
+        if not _IS_MAC:
+            return
+        try:
+            win.events.shown.wait(10)
+        except Exception:
+            pass
+        # Das Statusitem braucht eine *laufende* NSApplication. Wird es davor
+        # angelegt, gibt AppKit ihm ein Fenster der Hoehe 0 -- es existiert,
+        # meldet sich als sichtbar, und ist trotzdem nirgends zu sehen.
+        try:
+            import AppKit
+            app = AppKit.NSApplication.sharedApplication()
+            for _ in range(100):
+                if app.isRunning():
+                    break
+                time.sleep(0.05)
+        except Exception:
+            pass
+        _install_mac_app_delegate(tray.show_main, real_quit)
+        _install_mac_reveal_signal(tray.show_main)
+        if tray_wanted:
+            tray.start()
+
     try:
-        webview.start()
+        webview.start(_gui_ready)
     finally:
         try:
             api.buddy.stop()

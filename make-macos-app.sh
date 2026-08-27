@@ -1,11 +1,22 @@
 #!/bin/bash
 # Build "Claude Session Browser.app" for macOS and install it.
 #
-# The bundle is a thin wrapper: it carries the icon, the name macOS shows in
-# the Dock and in Login Items, and a launcher that starts claude_sessions.py
-# from this checkout using the virtualenv next to it. Nothing is copied, so a
-# `git pull` here is picked up on the next launch -- but moving or deleting
-# this directory breaks the installed app. Re-run the script after moving it.
+# CFBundleExecutable is a small native launcher compiled here, which starts
+# claude_sessions.py through Py_BytesMain. That matters more than it looks:
+# LaunchServices registers the process it starts as the application, and a
+# shell script that exec's a different binary (or starts one and exits) leaves
+# that registration pointing at something else. The window and the Dock icon
+# survive that, but the menu bar refuses the app's status item -- the tray icon
+# simply never appears when launched from the Finder, while a start from the
+# terminal works fine. Python therefore has to run in the very process macOS
+# launched.
+#
+# Requires the Xcode command line tools (xcrun clang) and a Python *framework*
+# build with headers -- Homebrew's python@3.x has both.
+#
+# By default everything is copied into the bundle, so this checkout can be
+# moved or deleted afterwards; --dev links back here instead and picks up every
+# change on the next launch.
 #
 # Usage:
 #   ./make-macos-app.sh                 # install into /Applications
@@ -29,6 +40,7 @@ done
 DEST="${ARGS[0]:-/Applications}"
 APP="$DEST/Claude Session Browser.app"
 APP_EXEC="Claude Session Browser"   # Dock/Login-Items label = this file name
+BUNDLE_ID="com.claudesessionbrowser.app"   # muss zur Info.plist passen
 VENV="$SRC/.venv/bin/python"
 VERSION="$(/usr/bin/python3 -c 'import json;print(json.load(open("version.json"))["version"])' 2>/dev/null || echo 0)"
 
@@ -36,6 +48,10 @@ if [ ! -x "$VENV" ]; then
     echo "Error: no virtualenv at $VENV"
     echo "Create one first:"
     echo "  /usr/bin/env python3 -m venv .venv && ./.venv/bin/pip install pywebview bleak pillow pystray"
+    echo
+    echo "Optional: brew install python-tk@3.13 -- without Tk the limit-reset"
+    echo "toast and monitor detection stay quiet, and there is no desktop"
+    echo "buddy. Everything else, the Clawdmeter included, works without it."
     exit 1
 fi
 if [ ! -w "$DEST" ]; then
@@ -71,7 +87,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleName</key>              <string>Claude Session Browser</string>
     <key>CFBundleDisplayName</key>       <string>Claude Session Browser</string>
     <key>CFBundleIdentifier</key>        <string>com.claudesessionbrowser.app</string>
-    <key>CFBundleExecutable</key>        <string>launcher</string>
+    <key>CFBundleExecutable</key>        <string>$APP_EXEC</string>
     <key>CFBundleIconFile</key>          <string>appicon</string>
     <key>CFBundlePackageType</key>       <string>APPL</string>
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
@@ -93,28 +109,26 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 </plist>
 PLIST
 
-echo "==> Interpreter"
-# The Dock and Login Items show whichever bundle owns the RUNNING executable,
-# and they label it with that executable's file name. Exec'ing the Homebrew
-# python leaves the app looking like "Python" with the generic rocket icon, so
-# the interpreter is copied in here and named after the app.
-#
-# It has to be the framework binary, not bin/python3.13: that one is a stub
-# that re-execs the framework copy, which hands the identity straight back.
-#
-# A copied venv interpreter no longer finds its virtualenv (it looks for
-# ../pyvenv.cfg next to itself), so the venv is restated in bundle terms --
-# pyvenv.cfg beside MacOS/, lib/ pointed at the real one. Nothing is
-# duplicated; the packages stay in the checkout.
+echo "==> Native Python launcher"
+# CFBundleExecutable must be the long-lived Mach-O process which owns NSApp.
+# A shell script is not a proper LaunchServices application executable; and
+# having that script exec or orphan a different binary leaves LaunchServices
+# tracking a process which no longer matches (or no longer exists). Build a
+# tiny native launcher linked to the venv's Python framework instead. Python
+# then runs inside the registered process: no shell, child, or executable
+# replacement separates NSApplication from the identity LaunchServices owns.
 BASE="$("$VENV" -c 'import sys; print(sys.base_prefix)')"
 PYVER="$("$VENV" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-FRAMEWORK_PY="$BASE/Resources/Python.app/Contents/MacOS/Python"
-[ -x "$FRAMEWORK_PY" ] || FRAMEWORK_PY="$BASE/bin/python$PYVER"
-if [ ! -x "$FRAMEWORK_PY" ]; then
-    echo "Error: no interpreter found under $BASE"
+PYTHON_DYLIB="$BASE/Python"
+PYTHON_INCLUDE="$BASE/include/python$PYVER"
+if [ ! -f "$PYTHON_DYLIB" ] || [ ! -d "$PYTHON_INCLUDE" ]; then
+    echo "Error: Python framework development files not found under $BASE"
+    echo "The native launcher links against libPython, so the venv has to be"
+    echo "built on a framework install that ships headers -- e.g."
+    echo "  brew install python@3.13"
+    echo "The Python from the Xcode command line tools does not qualify."
     exit 1
 fi
-cp "$FRAMEWORK_PY" "$APP/Contents/MacOS/$APP_EXEC"
 cat > "$APP/Contents/pyvenv.cfg" <<CFG
 home = $BASE/bin
 include-system-site-packages = false
@@ -129,7 +143,7 @@ else
     echo "==> Copying app and packages into the bundle"
     cp -R "$SRC/.venv/lib/python$PYVER" "$APP/Contents/lib/python$PYVER"
     mkdir -p "$APP/Contents/Resources/app"
-    for f in "$SRC"/*.py "$SRC"/version.json; do
+    for f in "$SRC"/*.py "$SRC"/version.json "$SRC"/claude_sessions.ico; do
         [ -e "$f" ] && cp "$f" "$APP/Contents/Resources/app/"
     done
     # docs/ traegt die Bilder, auf die die Oberflaeche verweist.
@@ -137,37 +151,41 @@ else
     RUNDIR="$APP/Contents/Resources/app"
 fi
 
-cat > "$APP/Contents/MacOS/launcher" <<LAUNCHER
-#!/bin/bash
-# Only one copy at a time: a second launch brings the running one forward.
-# _acquire_single_instance() is a Windows-only guard, so without this two apps
-# would run and both drive the Clawdmeter over BLE.
-#
-# Match on this bundle's own interpreter, not on "claude_sessions.py": that
-# string turns up in any shell that happens to mention the file, and a false
-# match here means a launch that quietly does nothing.
-#
-# Raising the window goes through System Events, addressing the process. The
-# obvious \`tell application "Claude Session Browser" to activate\` must not be
-# used: for an app that is NOT running that asks LaunchServices to start it --
-# which is this launcher, which would then wait for itself. That deadlocks with
-# a Dock icon, no window, and "Application Not Responding".
-SELF="\$(dirname "\$0")/$APP_EXEC"
-if /usr/bin/pgrep -f "\$SELF" >/dev/null 2>&1; then
-    /usr/bin/osascript -e 'tell application "System Events" to set frontmost of the first process whose name is "$APP_EXEC" to true' >/dev/null 2>&1 || true
-    exit 0
-fi
-cd "$RUNDIR"
-exec "\$SELF" claude_sessions.py
+LAUNCH_SRC="$(mktemp -d)/csb-launcher.c"
+cat > "$LAUNCH_SRC" <<LAUNCHER
+#include <Python.h>
+#include <string.h>
+
+int main(int argc, char **argv) {
+    const char *script = "$RUNDIR/claude_sessions.py";
+    int app_launch = argc == 1;
+    for (int i = 1; i < argc; ++i) {
+        if (strncmp(argv[i], "-psn_", 5) != 0) {
+            app_launch = 0;
+            break;
+        }
+    }
+    if (!app_launch) {
+        return Py_BytesMain(argc, argv);
+    }
+    char *python_argv[] = {argv[0], (char *)script, NULL};
+    return Py_BytesMain(2, python_argv);
+}
 LAUNCHER
-chmod +x "$APP/Contents/MacOS/launcher"
+xcrun clang -Os -I"$PYTHON_INCLUDE" "$LAUNCH_SRC" "$PYTHON_DYLIB" \
+    -o "$APP/Contents/MacOS/$APP_EXEC"
 
 echo "==> Signing"
-# The copied interpreter carries a signature made for its old home. Left as it
-# is, macOS kills the process on launch with SIGTRAP (exit 133) and no message
-# of any kind. An ad-hoc signature is enough for a locally built app.
-codesign --force -s - "$APP/Contents/MacOS/$APP_EXEC" 2>/dev/null || \
-    echo "  warning: could not sign the interpreter; the app may refuse to start"
+# Sign the actual long-lived CFBundleExecutable, then seal the whole bundle.
+codesign --force -s - --identifier "$BUNDLE_ID" \
+    "$APP/Contents/MacOS/$APP_EXEC" 2>/dev/null || \
+    echo "  warning: could not sign the launcher; the app may refuse to start"
+
+# Und dann das ganze Bundle. Das ist fuer einen konsistenten LaunchServices-
+# Eintrag noetig, aber nicht ausreichend: CFBundleExecutable muss ausserdem
+# der echte, langlebige Mach-O-Prozess sein (siehe nativer Starter oben).
+codesign --force --deep -s - --identifier "$BUNDLE_ID" "$APP" 2>/dev/null || \
+    echo "  warning: could not sign the bundle; the menu bar icon may not appear"
 
 # Replacing the bundle leaves LaunchServices pointing at what used to be here,
 # and `open -a` then says it cannot find the app at all. Re-register it.

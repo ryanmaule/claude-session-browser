@@ -429,6 +429,7 @@ TRANSLATIONS = {
         "Auf diesem System gibt es kein Tray-Icon.":
             "There is no tray icon on this system.",
         "Nur unter Windows.": "Windows only.",
+        "Auf diesem Betriebssystem nicht möglich.": "Not possible on this operating system.",
         "Zeigen, was Claude tut": "Show what Claude is doing",
         "Das Gerät zeigt die Animation zum erkannten Zustand — schreibt Claude gerade, denkt er nach, wartet er auf dich. Aus wählt das Gerät selbst eine nach Auslastung.":
             "The device shows the animation for the detected state — Claude "
@@ -444,6 +445,10 @@ TRANSLATIONS = {
             "big Clawd for five seconds and then goes back to the numbers. A tap "
             "always switches by hand, whatever the setting.",
         "Zahlen": "Usage",
+        "Dein Clawdmeter-Gerät": "Your Clawdmeter Device",
+        "Schickt deine Claude-Auslastung per Bluetooth an ein Clawdmeter-Gerät. Es muss einmal in den Bluetooth-Einstellungen des Systems gekoppelt werden.":
+            "Sends your Claude usage to a Clawdmeter over Bluetooth. Pair the "
+            "device once in your system's Bluetooth settings.",
         "macOS-Port": "macOS port",
         "Dieser Build. Der Mac war nie das Ziel dieser App — Menüleiste, Dock und die Anbindung ans Clawdmeter mussten dafür neu geschrieben werden.":
             "This build. macOS was never what this app was written for — the "

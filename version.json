@@ -1,6 +1,6 @@
 {
-  "version": "1.4.0.1",
-  "notes": "Erste Fassung fuer den Mac. Das Menueleisten-Symbol erscheint jetzt auch beim Start aus dem Finder, die App laesst sich wieder beenden, und sie verschwindet beim Schliessen aus dem Dock. Das Clawdmeter zeigt, was Claude gerade tut, statt sich die Animation nach der Auslastung auszusuchen -- dafuer braucht das Geraet unsere Firmware.",
+  "version": "1.4.0.2",
+  "notes": "Kleinigkeit: die Fehlermeldung fuer ein nicht unterstuetztes System stand als einzige auf Englisch im Code und blieb dadurch in beiden Sprachen gleich. Ansonsten wie 1.4.0.1 -- diese Fassung dient vor allem dazu, den Update-Hinweis einmal im Betrieb zu sehen.",
   "url": "https://github.com/ryanmaule/claude-session-browser/releases/latest",
   "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg"
 }

@@ -443,7 +443,17 @@ TRANSLATIONS = {
             "On activity means: when a new state comes in, the device shows the "
             "big Clawd for five seconds and then goes back to the numbers. A tap "
             "always switches by hand, whatever the setting.",
-        "Zahlen": "Numbers",
+        "Zahlen": "Usage",
+        "macOS-Port": "macOS port",
+        "Dieser Build. Der Mac war nie das Ziel dieser App — Menüleiste, Dock und die Anbindung ans Clawdmeter mussten dafür neu geschrieben werden.":
+            "This build. macOS was never what this app was written for — the "
+            "menu bar, the Dock and the Clawdmeter link all had to be written "
+            "for it.",
+        "Clawdmeter-Firmware, macOS-Fork": "Clawdmeter firmware, macOS fork",
+        "Führt juppeees Branch fort: Anzeigemodi, eine Fußzeile die den Zustand nennt, und ein Eck-Buddy der nicht mehr einfriert. Nötig für alles davon.":
+            "Continues juppeee's branch: display modes, a footer that names the "
+            "state, and a corner buddy that no longer freezes. Needed for any "
+            "of it.",
         "Clawd": "Clawd",   # Eigenname, bleibt stehen
         "Bei Aktivität wechseln": "Switch on activity",
         "Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.":

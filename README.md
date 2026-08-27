@@ -306,10 +306,15 @@ The app compares its own `VERSION` against `version.json` in this repo on start.
 The app checks GitHub for updates by itself and offers to install them. No
 internet, no problem — the check is skipped silently.
 
-**On macOS, ignore it.** The check still points at juppeee's releases, and
-installing one is Windows-only in any case — it would replace this port with
-the Windows build if it could. Update by pulling this repository and running
-`./make-macos-app.sh` again.
+**On macOS** the check reads this fork's releases, and offering an update opens
+the release page — download the DMG from there. Or pull this repository and run
+`./make-macos-app.sh` again, which comes to the same thing.
+
+Quit the app before replacing it in /Applications; macOS will not overwrite it
+while it is running. On first launch macOS blocks the new copy, since the
+bundle is ad-hoc signed rather than notarised: approve it under **System
+Settings → Privacy & Security**, where a button appears after the blocked
+attempt.
 
 ### Windows
 **Settings → Apps → Claude Session Browser → Uninstall**

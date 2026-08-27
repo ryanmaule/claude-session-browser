@@ -1,6 +1,6 @@
 {
-  "version": "1.4.0.2",
-  "notes": "Kleinigkeit: die Fehlermeldung fuer ein nicht unterstuetztes System stand als einzige auf Englisch im Code und blieb dadurch in beiden Sprachen gleich. Ansonsten wie 1.4.0.1 -- diese Fassung dient vor allem dazu, den Update-Hinweis einmal im Betrieb zu sehen.",
+  "version": "1.4.0.3",
+  "notes": "Die Beschreibung unter \\u201eSessions im Home-Ordner verstecken\\u201c blieb auf Englisch gestellt deutsch, weil der Satz den Ordnernamen enthaelt und damit nie zur Uebersetzungstabelle passte. Ausserdem sagt die Anleitung jetzt richtig, wie man die App nach dem Herunterladen freigibt: ueber Systemeinstellungen > Datenschutz & Sicherheit, nicht per Rechtsklick.",
   "url": "https://github.com/ryanmaule/claude-session-browser/releases/latest",
   "dmg_url": "https://github.com/ryanmaule/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-macOS.dmg"
 }

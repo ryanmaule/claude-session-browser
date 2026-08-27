@@ -56,7 +56,7 @@ logging.getLogger("pywebview").setLevel(logging.CRITICAL)
 # ----- Version & Update ---------------------------------------------------- #
 # Vierte Stelle = die Mac-Fassung. So bleibt erkennbar, auf welchem Stand von
 # juppeee sie sitzt, und _vtuple() sortiert sie trotzdem ueber die 1.4.0.
-VERSION = "1.4.0.2"
+VERSION = "1.4.0.3"
 # Wird beim GitHub-Setup auf dein echtes Repo gesetzt (OWNER/REPO):
 # Auf unsere eigene Fassung zeigen: eine neue Version von juppeee heisst fuer
 # einen Mac gar nichts -- sein Installer laeuft dort nicht, und sie waere ohne
@@ -6717,7 +6717,7 @@ function renderSettings(){
       <h2>${ic('eye')}Anzeige</h2>
       <div class="row2">
         <div><div class="lbl">Heimatordner ausblenden</div>
-          <div class="desc">Sessions direkt in ${esc(STATE.home)} verstecken (Unterordner bleiben sichtbar).</div></div>
+          <div class="desc">${t('Sessions direkt in {ordner} verstecken (Unterordner bleiben sichtbar).', {ordner: esc(STATE.home)})}</div></div>
         <div class="toggle ${st.hide_home?'on':''}" onclick="toggleHome(this)"></div>
       </div>
     </div>

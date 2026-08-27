@@ -27,5 +27,6 @@ hdiutil create -volname "Claude Session Browser" -srcfolder "$STAGE" \
 
 echo "==> Fertig: $DMG  ($(du -h "$DMG" | cut -f1), Version $VERSION)"
 echo
-echo "Die App ist ad-hoc signiert, nicht notarisiert. Beim ersten Start"
-echo "deshalb Rechtsklick > Oeffnen, sonst weigert sich Gatekeeper."
+echo "Die App ist ad-hoc signiert, nicht notarisiert. macOS blockiert sie beim"
+echo "ersten Start deshalb; freigeben unter Systemeinstellungen > Datenschutz"
+echo "& Sicherheit, dort steht sie nach dem Startversuch mit einem Knopf."

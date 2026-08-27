@@ -64,6 +64,17 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <key>CFBundleShortVersionString</key><string>$VERSION</string>
     <key>CFBundleVersion</key>           <string>$VERSION</string>
     <key>NSHighResolutionCapable</key>   <true/>
+    <!-- Ohne diese Texte beendet macOS die App in dem Moment, in dem sie
+         Bluetooth oder AppleScript anfasst -- SIGABRT aus der TCC-Ecke, ohne
+         dass ein Dialog erscheint. Aus dem Terminal gestartet faellt das nicht
+         auf: dann haengt die Berechtigung am Terminal. Aus dem Finder ist die
+         App selbst zustaendig und muss sagen, wofuer sie das braucht. -->
+    <key>NSBluetoothAlwaysUsageDescription</key>
+    <string>Der Clawdmeter wird über Bluetooth mit deiner Claude-Auslastung versorgt.</string>
+    <key>NSBluetoothPeripheralUsageDescription</key>
+    <string>Der Clawdmeter wird über Bluetooth mit deiner Claude-Auslastung versorgt.</string>
+    <key>NSAppleEventsUsageDescription</key>
+    <string>Erkennt an offenen Terminal-Fenstern, ob Claude Code gerade läuft.</string>
     <key>LSMinimumSystemVersion</key>    <string>10.13</string>
 </dict>
 </plist>
@@ -101,17 +112,35 @@ ln -sfn "$SRC/.venv/lib/python$PYVER" "$APP/Contents/lib/python$PYVER"
 
 cat > "$APP/Contents/MacOS/launcher" <<LAUNCHER
 #!/bin/bash
-# Only one copy at a time: a second launch just brings the running one
-# forward. _acquire_single_instance() is a Windows-only guard, so without
-# this two apps would run and both drive the Clawdmeter over BLE.
-if /usr/bin/pgrep -f "claude_sessions.py" >/dev/null 2>&1; then
-    /usr/bin/osascript -e 'tell application "Claude Session Browser" to activate' 2>/dev/null || true
+# Only one copy at a time: a second launch brings the running one forward.
+# _acquire_single_instance() is a Windows-only guard, so without this two apps
+# would run and both drive the Clawdmeter over BLE.
+#
+# Match on this bundle's own interpreter, not on "claude_sessions.py": that
+# string turns up in any shell that happens to mention the file, and a false
+# match here means a launch that quietly does nothing.
+#
+# Raising the window goes through System Events, addressing the process. The
+# obvious \`tell application "Claude Session Browser" to activate\` must not be
+# used: for an app that is NOT running that asks LaunchServices to start it --
+# which is this launcher, which would then wait for itself. That deadlocks with
+# a Dock icon, no window, and "Application Not Responding".
+SELF="\$(dirname "\$0")/$APP_EXEC"
+if /usr/bin/pgrep -f "\$SELF" >/dev/null 2>&1; then
+    /usr/bin/osascript -e 'tell application "System Events" to set frontmost of the first process whose name is "$APP_EXEC" to true' >/dev/null 2>&1 || true
     exit 0
 fi
 cd "$SRC"
-exec "\$(dirname "\$0")/$APP_EXEC" claude_sessions.py
+exec "\$SELF" claude_sessions.py
 LAUNCHER
 chmod +x "$APP/Contents/MacOS/launcher"
+
+echo "==> Signing"
+# The copied interpreter carries a signature made for its old home. Left as it
+# is, macOS kills the process on launch with SIGTRAP (exit 133) and no message
+# of any kind. An ad-hoc signature is enough for a locally built app.
+codesign --force -s - "$APP/Contents/MacOS/$APP_EXEC" 2>/dev/null || \
+    echo "  warning: could not sign the interpreter; the app may refuse to start"
 
 # Drop the quarantine flag so Finder does not refuse a locally built bundle.
 xattr -dr com.apple.quarantine "$APP" 2>/dev/null || true

@@ -507,7 +507,7 @@ class ClawdmeterLink:
 
     def __init__(self, log=None, address_provider=None, on_usage=None,
                  anim_provider=None, on_battery=None, corner_provider=None,
-                 clock_provider=None):
+                 clock_provider=None, screen_mode_provider=None):
         """address_provider: Funktion die die gewuenschte Geraeteadresse liefert
         (leer/None = automatisch suchen). Wird bei jedem Versuch neu gefragt,
         damit eine Aenderung in den Einstellungen sofort greift.
@@ -527,6 +527,9 @@ class ClawdmeterLink:
         # gefragt, damit ein Umschalten sofort ankommt.
         self._corner_provider = corner_provider or (lambda: False)
         self._last_corner = None
+        # 0 = immer Usage, 1 = immer Buddy, 2 = bei Aktivitaet kurz den Buddy.
+        self._screen_mode_provider = screen_mode_provider or (lambda: 0)
+        self._last_screen_mode = None
         # 24 oder 12 - wie die Animation bei jedem Senden neu gefragt, damit
         # ein Umschalten beim naechsten Poll auf dem Geraet steht.
         self._clock_provider = clock_provider or (lambda: 24)
@@ -706,6 +709,7 @@ class ClawdmeterLink:
 
             self._last_payload = None    # frische Sitzung, nichts zwischenlagern
             self._last_anim = ""
+            self._last_screen_mode = None
             while not self._stop.is_set() and client.is_connected:
                 await self._send_once(client)
                 await self._read_battery(client)
@@ -754,6 +758,12 @@ class ClawdmeterLink:
             except Exception:
                 pass
 
+    def _current_screen_mode(self) -> int:
+        try:
+            return int(self._screen_mode_provider() or 0)
+        except Exception:
+            return 0
+
     def _current_corner(self) -> bool:
         try:
             return bool(self._corner_provider())
@@ -765,7 +775,8 @@ class ClawdmeterLink:
             return False            # noch keine Zahlen -> nichts zu ergaenzen
         try:
             return (self._current_anim() != self._last_anim
-                    or self._current_corner() != self._last_corner)
+                    or self._current_corner() != self._last_corner
+                    or self._current_screen_mode() != self._last_screen_mode)
         except Exception:
             return False
 
@@ -803,12 +814,15 @@ class ClawdmeterLink:
         payload["a"] = anim          # "" = Geraet entscheidet selbst
         corner = self._current_corner()
         payload["ua"] = corner       # Buddy klein auf dem Usage-Screen
+        mode = self._current_screen_mode()
+        payload["sm"] = mode         # 0 Usage, 1 Buddy, 2 bei Aktivitaet
         try:
             payload["tf"] = 24 if int(self._clock_provider()) != 12 else 12
         except Exception:
             payload["tf"] = 24
         self._last_anim = anim
         self._last_corner = corner
+        self._last_screen_mode = mode
 
         data = json.dumps(payload, separators=(",", ":")).encode()
         await client.write_gatt_char(RX_CHAR_UUID, data, response=False)

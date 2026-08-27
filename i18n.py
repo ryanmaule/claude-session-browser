@@ -438,6 +438,14 @@ TRANSLATIONS = {
         "Sonst nur auf dem Splash-Screen. Setzt eine Firmware voraus, die das kann.":
             "Otherwise only on the splash screen. Needs firmware that supports it.",
         "24-Stunden-Uhr": "24-hour clock",
+        "Was das Gerät zeigt": "What the device shows",
+        "Bei Aktivität heißt: taucht ein neuer Zustand auf, zeigt das Gerät fünf Sekunden lang den großen Clawd und geht dann zu den Zahlen zurück. Antippen schaltet in jedem Fall selbst um.":
+            "On activity means: when a new state comes in, the device shows the "
+            "big Clawd for five seconds and then goes back to the numbers. A tap "
+            "always switches by hand, whatever the setting.",
+        "Zahlen": "Numbers",
+        "Clawd": "Clawd",   # Eigenname, bleibt stehen
+        "Bei Aktivität wechseln": "Switch on activity",
         "Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.":
             "The clock on the device's usage screen. Off shows it as 12-hour "
             "time with AM/PM.",
@@ -709,6 +717,7 @@ TRANSLATIONS = {
         "Bereit! Programm startet neu…": "Ready – restarting…",
         "Zur Download-Seite": "Open the download page",
         "Automatisch (nichts gefunden)": "Automatic (nothing found)",
+        "Automatisch ({geraet})": "Automatic ({geraet})",
         "Sprite-Daten fehlen – bitte neu installieren.":
             "Sprite data is missing – please reinstall.",
         "Los geht's! 🎉": "Let's go! 🎉",

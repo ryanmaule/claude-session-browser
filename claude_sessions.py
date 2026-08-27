@@ -360,6 +360,9 @@ DEFAULT_SETTINGS = {
     # Zeigt das Geraet dieselbe Animation wie der Buddy? Aus = es waehlt selbst
     # nach Auslastung aus (Originalverhalten der Firmware).
     "clawdmeter_buddy": True,
+    # Was das Geraet zeigt: "usage" (Zahlen), "buddy" (immer der Grosse) oder
+    # "auto" (bei jedem neuen Zustand kurz der Grosse, dann zurueck).
+    "clawd_screen_mode": "usage",
 }
 
 # Wenn diese Konstante sich aendert, sehen bestehende Nutzer das Onboarding erneut
@@ -4151,6 +4154,13 @@ class Api:
         except Exception:
             return ""
 
+    _SCREEN_MODES = {"usage": 0, "buddy": 1, "auto": 2}
+
+    def _clawd_screen_mode(self):
+        """Anzeigemodus fuers Geraet als Zahl (siehe SCREEN_MODE_* im ui.h)."""
+        return self._SCREEN_MODES.get(
+            str(self.settings.get("clawd_screen_mode", "usage")), 0)
+
     def _clawd_corner(self):
         """Soll das Geraet den Buddy klein auf dem Usage-Screen zeigen?
 
@@ -4177,6 +4187,7 @@ class Api:
             anim_provider=self._clawd_anim,
             corner_provider=self._clawd_corner,
             clock_provider=lambda: 24 if self.settings.get("clock_24h", True) else 12,
+            screen_mode_provider=self._clawd_screen_mode,
             on_battery=self.on_clawd_battery)
         return self._clawdmeter
 
@@ -6785,6 +6796,15 @@ function renderSettings(){
         <div class="toggle ${(st.buddy||{}).usage_screen_anim?'on':''}" onclick="buddySetToggle('usage_screen_anim')"></div>
       </div>
       <div class="row2">
+        <div><div class="lbl">Was das Gerät zeigt</div>
+          <div class="desc">Bei Aktivität heißt: taucht ein neuer Zustand auf, zeigt das Gerät fünf Sekunden lang den großen Clawd und geht dann zu den Zahlen zurück. Antippen schaltet in jedem Fall selbst um.</div></div>
+        <select class="sel-input" onchange="setClawdScreenMode(this.value)">
+          <option value="usage" ${(st.clawd_screen_mode||'usage')==='usage'?'selected':''}>Zahlen</option>
+          <option value="buddy" ${st.clawd_screen_mode==='buddy'?'selected':''}>Clawd</option>
+          <option value="auto" ${st.clawd_screen_mode==='auto'?'selected':''}>Bei Aktivität wechseln</option>
+        </select>
+      </div>
+      <div class="row2">
         <div><div class="lbl">24-Stunden-Uhr</div>
           <div class="desc">Die Uhrzeit im Usage-Screen des Geräts. Aus zeigt sie als 12-Stunden-Zeit mit AM/PM.</div></div>
         <div class="toggle ${st.clock_24h!==false?'on':''}" onclick="toggleClock24(this)"></div>
@@ -6964,7 +6984,11 @@ async function loadClawdDevices(rescan){
   const cur = (STATE.settings.clawdmeter_addr||'');
   const devs = (r&&r.devices)||[];
   const autoName = (devs.find(d=>d.address===(r&&r.auto))||{}).name;
-  const autoLbl = r&&r.auto ? `Automatisch (${esc(autoName||r.auto)})` : 'Automatisch (nichts gefunden)';
+  // Diese Liste entsteht erst nach dem Uebersetzungslauf ueber die Seite und
+  // wird zusammengesetzt -- ein fertiger Satz waere hier also nie in der
+  // Tabelle zu finden. Deshalb ueber t() mit Platzhalter.
+  const autoLbl = r&&r.auto ? t('Automatisch ({geraet})', {geraet: esc(autoName||r.auto)})
+                            : t('Automatisch (nichts gefunden)');
   let html = `<option value="" ${cur?'':'selected'}>${autoLbl}</option>`;
   if(!devs.length){
     html += '<option value="" disabled>' + t('Keine gekoppelten Bluetooth-Geräte') + '</option>';
@@ -7049,6 +7073,9 @@ async function toggleClawdBuddy(el){
 }
 setInterval(()=>{ if(document.getElementById('clawd-status')) refreshClawd(); }, 5000);
 
+async function setClawdScreenMode(v){
+  ingest(await api.update_setting('clawd_screen_mode', v));
+}
 async function toggleClock24(el){
   const on=!el.classList.contains('on'); el.classList.toggle('on',on);
   ingest(await api.update_setting('clock_24h', on));

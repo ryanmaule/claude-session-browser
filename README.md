@@ -45,7 +45,7 @@ and puts you back into one with a double-click.
 - **Know where your quota stands** — 5-hour and weekly usage with a live countdown to the reset
 - **Get told, not surprised** — a heads-up before the limit is full, and a notification when it resets
 - **[Clawd](#clawd-your-desktop-buddy)** — a 20×20 pixel buddy on your desktop who acts out what Claude is doing
-- **[Clawdmeter](#clawdmeter) support** — mirror Clawd onto a real device over Bluetooth (Windows)
+- **[Clawdmeter](#clawdmeter) support** — tell a real device what Claude is doing, over Bluetooth (Windows and macOS; [our firmware](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy) required)
 - **German and English** language support
 - **Updates itself** from GitHub
 
@@ -171,14 +171,14 @@ sessions you start afterwards.
 
 ## Clawdmeter
 
-*Optional, Windows only, and someone else's project — skip this if you don't own the device or aren't on Windows.*
+*Optional, and someone else's device — skip this if you don't own one.*
 
 The [Clawdmeter](https://github.com/HermannBjorgvin/Clawdmeter) is a small ESP32
 device by [Hermann Björgvin](https://github.com/HermannBjorgvin) that displays
-your Claude usage. This app speaks to it over Bluetooth on Windows and can
-mirror Clawd onto it, so the device acts out the same state your desktop buddy
-does, rather than only reacting to how fast your quota is burning. It reports
-its battery level back, and warns you before it runs flat.
+your Claude usage. This app speaks to it over Bluetooth — on Windows and on
+macOS — and tells it what Claude Code is actually doing, rather than leaving it
+to guess from how fast your quota is burning. It reports its battery level
+back, and warns you before it runs flat.
 
 <div align="center">
 
@@ -188,18 +188,27 @@ its battery level back, and warns you before it runs flat.
 
 </div>
 
-**Windows:** Pair the device once in the Windows Bluetooth settings, then enable it under
-**Settings → Connections**.
+Pair the device once in your system's Bluetooth settings, then enable it under
+**Buddy → Your Clawdmeter Device**.
 
-**Stock firmware is enough for most of it.** Usage and battery need nothing
-special — flash Hermann's firmware as usual and the device shows your quota
-while picking its own animations, exactly as it does without this app.
+### You need our firmware on the device
 
-Mirroring Clawd onto it needs two things his firmware doesn't carry yet: a
-field in the BLE payload so a host can name an animation, and sprites for the
-states it doesn't know — waiting for permission, out of quota. Until those land
-upstream they live in a [fork of his firmware](https://github.com/juppeee/Clawdmeter/tree/csb-buddy);
-flash that branch and the device acts out what Claude is doing.
+> **Flash [ryanmaule/Clawdmeter, branch `csb-buddy`](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy).**
+> Without it this app still connects and sends usage, but most of what it sends
+> is thrown away.
+
+The device firmware comes in three layers, and each one understands more of
+what this app says:
+
+| Firmware | What the device does |
+|---|---|
+| [Hermann's](https://github.com/HermannBjorgvin/Clawdmeter) (stock) | Usage and battery. It picks its own animations by how fast your quota burns — it has no idea what Claude is doing. |
+| [juppeee's `csb-buddy`](https://github.com/juppeee/Clawdmeter/tree/csb-buddy) | Adds the payload field that lets a host name an animation, plus sprites for states the stock set lacks — waiting for permission, out of quota. |
+| **[Ours](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy)** | Adds the display modes this app offers (usage / Clawd / switch on activity), and a footer that says `Needs you`, `Your turn`, `Limit reached` or `Idle` instead of rotating whimsical verbs forever. |
+
+The display modes are driven by a field only this app sends, so they exist
+nowhere else — pick "switch on activity" in the app with older firmware and
+nothing will happen.
 
 **Want a case for it?** The STL files are on
 [MakerWorld](https://makerworld.com/de/@Juppi187) — print one and your
@@ -223,7 +232,7 @@ See [Credits](#credits) for who built what.
 | Start with Windows | On (Windows) / Off (macOS) | Registry entry under `HKCU\Run` (Windows only) |
 | Notify on limit reset | On | A notification when your quota is back |
 | Warn before the limit is full | On, at 90% | Once per 5-hour window |
-| Clawdmeter battery warning | On, at 15% | Once per discharge (Windows only) |
+| Clawdmeter battery warning | On, at 15% | Once per discharge |
 
 <details>
 <summary><b>Where your data lives</b></summary>

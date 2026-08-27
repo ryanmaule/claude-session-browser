@@ -11,8 +11,8 @@
 > [ryanmaule/Clawdmeter](https://github.com/ryanmaule/Clawdmeter/tree/csb-buddy).
 > [Clawdmeter](#clawdmeter) below explains what each version understands.
 >
-> The README that follows is juppeee's, with the macOS build steps and caveats
-> edited into it. Worth reading even if you know the original.
+> The rest of this README is upstream's, updated where our changes affect it.
+> Worth a read.
 
 ---
 
@@ -27,13 +27,14 @@
 [![Python](https://img.shields.io/badge/Python-3.11-3776ab)](https://www.python.org/)
 [![UI](https://img.shields.io/badge/UI-pywebview-ec7456)](https://pywebview.flowrl.com/)
 [![License](https://img.shields.io/badge/License-MIT-3ecf8e)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/juppeee/claude-session-browser?color=ffb454)](https://github.com/juppeee/claude-session-browser/releases/latest)
 
 **Every Claude Code session you ever started, in one window — search them, and double-click one to jump straight back in.**
 
-<a href="https://github.com/juppeee/claude-session-browser/releases/latest/download/ClaudeSessionBrowser-Setup.exe"><img src="https://img.shields.io/badge/Download-Installer%20for%20Windows-ec7456?style=for-the-badge&logo=windows&logoColor=white" alt="Download the installer for Windows"></a>
+<a href="#macos"><img src="https://img.shields.io/badge/Build%20it-for%20macOS-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Build it for macOS"></a>
 
-<sub>Installs per user — no admin rights, no UAC prompt, and it never touches `~/.claude`</sub>
+<sub>No installer on macOS — clone, run <code>make-macos-app.sh</code>, and the app lands in /Applications</sub>
+
+<sub>On Windows, use <a href="https://github.com/juppeee/claude-session-browser/releases/latest">juppeee's installer</a> instead</sub>
 
 [Quick start](#quick-start) · [What you get](#what-you-get) · [Clawd](#clawd-your-desktop-buddy) · [Clawdmeter](#clawdmeter) · [Settings](#settings) · [Uninstall](#updating-and-uninstalling) · [Credits](#credits)
 

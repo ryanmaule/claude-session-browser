@@ -8176,6 +8176,11 @@ def main():
         height=int(s.get("win_h") or 760),
         maximized=bool(s.get("win_max")),
     )
+    # macOS: pywebview saves the position relative to the window's own display
+    # but restores it relative to the main one, so on multi-monitor setups the
+    # window can land off every screen and pywebview crashes. Centre it instead.
+    if sys.platform == "darwin":
+        s["win_x"] = s["win_y"] = None
     if s.get("win_x") is not None and s.get("win_y") is not None:
         wx, wy = int(s["win_x"]), int(s["win_y"])
         if _position_is_usable(wx, wy, kw["width"], kw["height"]):

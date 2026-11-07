@@ -220,6 +220,24 @@ def poll_usage_meta(token: str) -> tuple[dict | None, dict]:
             "acct": "pro",
             "ok": True,
         }
+    elif hdr("anthropic-ratelimit-unified-7d-utilization"):
+        # Weekly-only plans send no 5h window. Weekly bar shows the week,
+        # session bar stays at zero instead of "no data".
+        meta = {
+            "session_reset_at": 0.0,
+            "weekly_reset_at": _reset_epoch(
+                hdr("anthropic-ratelimit-unified-7d-reset")),
+        }
+        payload = {
+            "s": 0,
+            "sr": 0,
+            "w": _pct(hdr("anthropic-ratelimit-unified-7d-utilization")),
+            "wr": _reset_minutes(hdr("anthropic-ratelimit-unified-7d-reset"), now),
+            "st": hdr("anthropic-ratelimit-unified-7d-status")
+                  or hdr("anthropic-ratelimit-unified-status", "unknown"),
+            "acct": "pro",
+            "ok": True,
+        }
     elif hdr("anthropic-ratelimit-unified-overage-utilization"):
         meta = {
             "session_reset_at": _reset_epoch(

@@ -30,6 +30,7 @@ from pathlib import Path
 DEVICE_NAME = "Clawdmeter"
 SERVICE_UUID = "4c41555a-4465-7669-6365-000000000001"
 RX_CHAR_UUID = "4c41555a-4465-7669-6365-000000000002"
+TX_CHAR_UUID = "4c41555a-4465-7669-6365-000000000003"
 REQ_CHAR_UUID = "4c41555a-4465-7669-6365-000000000004"
 # Standard-Batteriedienst. Die Firmware haengt ihn ueber NimBLEs HID-Geraet
 # mit an (ble_set_battery_level -> hid_dev->setBatteryLevel), also nichts
@@ -59,6 +60,17 @@ RETRY_INTERVAL = 15     # Obergrenze der Wartezeit nach einem Fehlschlag
 CONNECT_TIMEOUT_FIRST = 8
 CONNECT_TIMEOUT = 20    # Abbruch wenn das Geraet nicht antwortet
 RETRY_BACKOFF = (2, 4, 8, 15)   # Wartezeit nach dem 1., 2., 3., n-ten Fehlschlag
+# The firmware acks every write it accepts. It silently drops writes that
+# arrive before a reconnected link is encrypted again (typical right after
+# the device is unplugged and plugged back in). Without an ack the payload
+# is resent after ACK_RETRY seconds; after ACK_MAX_MISSES misses in a row
+# the session is torn down and rebuilt.
+ACK_TIMEOUT = 3.0
+ACK_RETRY = 5.0
+ACK_MAX_MISSES = 6
+# Waiting time while macOS has no connected Clawdmeter (unplugged). Kept
+# short so a replugged device is picked up within seconds.
+MACOS_ABSENT_INTERVAL = 4
 
 
 # --------------------------------------------------------------------------
@@ -109,8 +121,8 @@ def _extract_token(blob: str) -> str | None:
 KEYCHAIN_SERVICE = "Claude Code-credentials"
 
 
-def _read_token_keychain() -> str | None:
-    """Den Token aus dem macOS-Schluesselbund lesen."""
+def _read_keychain_blob() -> str | None:
+    """The raw credentials entry from the macOS Keychain (JSON text)."""
     import getpass
     base = ["security", "find-generic-password", "-s", KEYCHAIN_SERVICE]
     # Erst auf den angemeldeten Benutzer eingegrenzt, sonst ohne -a: je nach
@@ -121,23 +133,142 @@ def _read_token_keychain() -> str | None:
                                  text=True, timeout=10)
         except (OSError, subprocess.SubprocessError):
             continue
-        if tok := _extract_token(out.stdout):
-            return tok
+        if _extract_token(out.stdout):
+            return out.stdout
     return None
 
 
-def read_token() -> str | None:
-    """Liest den Claude-OAuth-Token aus Credentials-Datei oder Schluesselbund."""
+def _read_token_keychain() -> str | None:
+    """Den Token aus dem macOS-Schluesselbund lesen."""
+    blob = _read_keychain_blob()
+    return _extract_token(blob) if blob else None
+
+
+def _read_credentials_blob() -> str | None:
+    """Raw credentials JSON, from the credentials file or the Keychain."""
     for path in _credential_candidates():
         try:
-            tok = _extract_token(path.read_text(encoding="utf-8"))
+            blob = path.read_text(encoding="utf-8")
         except OSError:
             continue
-        if tok:
-            return tok
+        if _extract_token(blob):
+            return blob
     if sys.platform == "darwin":
-        return _read_token_keychain()
+        return _read_keychain_blob()
     return None
+
+
+def token_expires_at(blob: str | None = None) -> float | None:
+    """When the stored access token expires (epoch seconds), if recorded."""
+    if blob is None:
+        blob = _read_credentials_blob()
+    try:
+        data = json.loads(blob or "")
+    except (TypeError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    for v in [data, *data.values()]:
+        if isinstance(v, dict) and isinstance(v.get("expiresAt"), (int, float)):
+            exp = float(v["expiresAt"])
+            return exp / 1000.0 if exp > 1e11 else exp   # ms or s
+    return None
+
+
+# --------------------------------------------------------------------------
+# Token renewal
+# --------------------------------------------------------------------------
+# The access token expires after some hours and only Claude Code renews it,
+# using the refresh token it keeps next to it. A laptop that sat closed
+# overnight therefore wakes up with an expired token and the device stays
+# on "No data". When the token is expired (or about to be), ask the Claude
+# Code CLI to renew it, then read it again. First `claude auth status`,
+# which costs nothing; if that leaves the token expired, one minimal Haiku
+# request with no tools, no MCP servers, no hooks, and no saved session.
+
+RENEW_MARGIN = 120          # renew when less than this many seconds remain
+RENEW_MIN_INTERVAL = 300    # never try more often than this
+_renew_lock = threading.Lock()
+_renew_state = {"at": 0.0}
+
+
+def _find_claude_cli() -> str | None:
+    """The claude executable. GUI apps on macOS don't get the shell PATH."""
+    import shutil
+    found = shutil.which("claude")
+    if found:
+        return found
+    home = Path.home()
+    for cand in (home / ".local" / "bin" / "claude",
+                 home / ".claude" / "local" / "claude",
+                 Path("/opt/homebrew/bin/claude"),
+                 Path("/usr/local/bin/claude")):
+        if cand.is_file() and os.access(cand, os.X_OK):
+            return str(cand)
+    return None
+
+
+def _token_fresh(margin: float = RENEW_MARGIN) -> bool:
+    exp = token_expires_at()
+    return exp is None or exp - time.time() > margin
+
+
+def renew_token(log=None) -> bool:
+    """Have Claude Code renew an expired token. True if it is valid after."""
+    import tempfile
+    log = log or (lambda msg: None)
+    if not _renew_lock.acquire(blocking=False):
+        return False                       # another thread is already on it
+    try:
+        now = time.time()
+        if now - _renew_state["at"] < RENEW_MIN_INTERVAL:
+            return _token_fresh(0)
+        _renew_state["at"] = now
+        exe = _find_claude_cli()
+        if not exe:
+            log("Token expired and the claude CLI was not found to renew it")
+            return False
+        with tempfile.TemporaryDirectory(prefix="csb-renew-") as cwd:
+            attempts = (
+                [exe, "auth", "status"],
+                [exe, "-p", "--no-session-persistence",
+                 "--model", "haiku", "--max-turns", "1", "--tools", "",
+                 "--strict-mcp-config", "--setting-sources", "local",
+                 "--disable-slash-commands", "Reply with OK."],
+            )
+            for args in attempts:
+                try:
+                    subprocess.run(args, cwd=cwd, capture_output=True,
+                                   text=True, timeout=90,
+                                   stdin=subprocess.DEVNULL)
+                except (OSError, subprocess.SubprocessError) as e:
+                    log(f"Token renewal ({args[1]}) failed: {e}")
+                    continue
+                if _token_fresh():
+                    log(f"Claude token renewed via `claude {args[1]}`")
+                    return True
+        log("Claude token is still expired after renewal attempts")
+        return False
+    finally:
+        _renew_lock.release()
+
+
+def _read_token_raw() -> str | None:
+    """Liest den Claude-OAuth-Token aus Credentials-Datei oder Schluesselbund."""
+    blob = _read_credentials_blob()
+    return _extract_token(blob) if blob else None
+
+
+def read_token(log=None) -> str | None:
+    """The OAuth token, renewed through Claude Code first if it has expired."""
+    blob = _read_credentials_blob()
+    if not blob:
+        return None
+    exp = token_expires_at(blob)
+    if exp is not None and exp - time.time() <= RENEW_MARGIN:
+        if renew_token(log):
+            blob = _read_credentials_blob() or blob
+    return _extract_token(blob)
 
 
 # --------------------------------------------------------------------------
@@ -537,6 +668,9 @@ class ClawdmeterLink:
         # sonst haengt an jedem Poll eine Auswertung.
         self._on_battery = on_battery
         self._last_payload = None    # letzte API-Antwort, fuer Anim-Updates
+        self._ack_event = None       # set by the firmware's ack notify
+        self._acks_supported = False # False on firmware without the TX char
+        self._unacked = 0            # consecutive writes without an ack
         self._last_anim = ""         # "" = nichts vorgegeben, wie beim Geraet
         self._thread = None
         self._stop = threading.Event()
@@ -669,7 +803,7 @@ class ClawdmeterLink:
                 self._set(connected=False, last_error=(
                     "Kein verbundenes Clawdmeter — in den Bluetooth-"
                     "Einstellungen koppeln und verbinden"))
-                await self._sleep(RETRY_INTERVAL)
+                await self._sleep(MACOS_ABSENT_INTERVAL)
                 return
         async with BleakClient(target, timeout=timeout) as client:
             # Fehlt der Service, hat das zwei moegliche Gruende: falsches
@@ -707,6 +841,20 @@ class ClawdmeterLink:
             except Exception:
                 pass
 
+            ack_event = asyncio.Event()
+
+            def on_ack(_char, data) -> None:
+                if data and b"ack" in bytes(data):
+                    ack_event.set()
+
+            self._ack_event = ack_event
+            self._unacked = 0
+            try:
+                await client.start_notify(TX_CHAR_UUID, on_ack)
+                self._acks_supported = True
+            except Exception:
+                self._acks_supported = False   # older firmware: fire and forget
+
             self._last_payload = None    # frische Sitzung, nichts zwischenlagern
             self._last_anim = ""
             self._last_screen_mode = None
@@ -719,12 +867,21 @@ class ClawdmeterLink:
                 # damit ein Buddy-Wechsel schnell durchkommt.
                 refresh.clear()
                 waited = 0.0
+                since_resend = 0.0
                 while (waited < POLL_INTERVAL and not self._stop.is_set()
-                       and not refresh.is_set()):
+                       and not refresh.is_set() and client.is_connected):
                     try:
                         await asyncio.wait_for(refresh.wait(), 1.0)
                     except asyncio.TimeoutError:
                         waited += 1.0
+                        since_resend += 1.0
+                        # Last write not confirmed: resend the same numbers
+                        # (no new API call) until the device takes them.
+                        if (self._unacked and self._last_payload is not None
+                                and since_resend >= ACK_RETRY):
+                            since_resend = 0.0
+                            await self._send_once(client, poll=False)
+                            continue
                         # Der Buddy wechselt viel haeufiger als die Nutzungs-
                         # zahlen. Solche Wechsel gehen ohne neue API-Abfrage
                         # raus -- sonst wuerde jedes Blinzeln einen echten
@@ -792,7 +949,7 @@ class ClawdmeterLink:
             # Nicht direkt aufrufen: auf macOS liest read_token() ueber einen
             # Unterprozess aus dem Schluesselbund und wuerde die Loop
             # blockieren -- und damit die BLE-Benachrichtigungen mit.
-            token = await asyncio.to_thread(read_token)
+            token = await asyncio.to_thread(read_token, self._log)
             if not token:
                 self._set(last_error="Kein Claude-Token gefunden")
                 return
@@ -825,7 +982,24 @@ class ClawdmeterLink:
         self._last_screen_mode = mode
 
         data = json.dumps(payload, separators=(",", ":")).encode()
+        if self._ack_event is not None:
+            self._ack_event.clear()
         await client.write_gatt_char(RX_CHAR_UUID, data, response=False)
+        if self._acks_supported and self._ack_event is not None:
+            try:
+                await asyncio.wait_for(self._ack_event.wait(), ACK_TIMEOUT)
+                if self._unacked:
+                    self._log(f"Clawdmeter: accepted after "
+                              f"{self._unacked} retries")
+                self._unacked = 0
+            except asyncio.TimeoutError:
+                self._unacked += 1
+                self._set(last_error="Gerät hat die Daten nicht bestätigt")
+                if self._unacked >= ACK_MAX_MISSES:
+                    self._unacked = 0
+                    raise RuntimeError("Clawdmeter confirms no writes, "
+                                       "reconnecting")
+                return
         self._set(last_send=time.time(), last_error=None)
         if poll:
             self._log(f"Clawdmeter: {payload['s']}% / {payload['w']}%"
@@ -875,7 +1049,7 @@ class UsageWatcher:
         while not self._stop.is_set():
             delay = self.INTERVAL
             if not self._is_covered():
-                token = read_token()
+                token = read_token(self._log)
                 if token:
                     try:
                         _payload, meta = poll_usage_meta(token)
